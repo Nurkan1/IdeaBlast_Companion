@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { processWithMcp, setProgressCallback, type McpToolResult, type FileContext } from "../lib/mcpBrain";
+import { processWithMcp, setProgressCallback, setCurrentModel, type McpToolResult, type FileContext } from "../lib/mcpBrain";
 
 export interface ChatMessage {
   id: string;
@@ -57,6 +57,9 @@ export function useChat(model: string): UseChatReturn {
         images,
         timestamp: Date.now(),
       };
+
+      // ── Keep mcpBrain aware of current model (for LLM classification) ──
+      setCurrentModel(model);
 
       // ── Extract file contexts from message (files prepended as "--- name ---\n...") ──
       const fileContexts: FileContext[] = [];

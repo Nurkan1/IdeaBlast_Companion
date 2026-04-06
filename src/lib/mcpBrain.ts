@@ -22,6 +22,7 @@ import {
   type McpIdea,
   type McpSnapshot,
 } from "./mcpClient";
+import { ollamaRequest } from "./httpProxy";
 
 // ══════════════════════════════════════════════════════════════
 // Types
@@ -46,6 +47,10 @@ export type OnProgress = (step: string) => void;
 let _onProgress: OnProgress | null = null;
 export function setProgressCallback(cb: OnProgress | null): void { _onProgress = cb; }
 function emitProgress(step: string): void { _onProgress?.(step); }
+
+// ── Current model (set by useChat) ──
+let _currentModel = "gemma3:4b";
+export function setCurrentModel(model: string): void { _currentModel = model; }
 
 // ── State ──
 let _lastReadIdeas: McpIdea[] = [];
@@ -158,13 +163,123 @@ const INTENT_PATTERNS: IntentPattern[] = [
   { keywords: /\b(limpia|clear|vacía|empty)\b.*\b(pending|pendiente|inbox|cola)\b/i, tool: "clear_pending" },
 ];
 
-function detectIntent(message: string): string | null {
+function detectIntentRegex(message: string): string | null {
   for (const pattern of INTENT_PATTERNS) {
     if (pattern.keywords.test(message)) {
       return pattern.tool;
     }
   }
   return null;
+}
+
+// ══════════════════════════════════════════════════════════════
+// LLM-based Intent Classification (fallback when regex fails)
+// ══════════════════════════════════════════════════════════════
+
+const TOOL_LIST = [
+  "read_ideas - Show/list user's ideas",
+  "search_ideas - Search/find ideas by topic",
+  "create_idea - Create ONE new idea",
+  "brainstorm - Generate MULTIPLE ideas about a topic",
+  "delete_idea - Delete/remove ideas",
+  "toggle_done - Mark ideas as done/complete",
+  "toggle_favorite - Mark ideas as favorite",
+  "add_tag - Add tags/labels to ideas",
+  "edit_idea - Edit/change/rename an idea's text",
+  "set_deadline - Set a deadline/due date",
+  "generate_plan - Create a plan/roadmap/guide with steps",
+  "create_sticky - Create a sticky note/reminder",
+  "create_kanban - Create a kanban card",
+  "read_kanban - Show kanban board/cards",
+  "update_kanban - Move/edit/delete kanban cards",
+  "read_daily - Show daily notes/sticky notes",
+  "update_daily_note - Edit/complete/delete daily notes",
+  "daily_plan - Plan my day with multiple tasks",
+  "get_stats - Show statistics/productivity",
+  "weekly_summary - Weekly review/summary",
+  "inject_nexus - Create mind map/diagram",
+  "read_boardroom - Show boardroom sessions",
+  "list_pending - Show pending/queued items",
+  "clear_pending - Clear pending queue",
+  "none - General chat, NOT related to managing ideas/notes/cards",
+].join("\n");
+
+const CLASSIFY_PROMPT = `You are a classifier. Given a user message, pick the ONE tool that best matches their intent. Reply with ONLY the tool name, nothing else.
+
+Tools:
+${TOOL_LIST}
+
+Rules:
+- If the user wants to create MULTIPLE ideas or brainstorm, pick "brainstorm"
+- If the user wants to create exactly ONE idea, pick "create_idea"
+- If unrelated to ideas/notes/kanban/planning, pick "none"
+- Reply with ONLY the tool name. No explanation.
+
+User message: `;
+
+/** Ask the LLM to classify intent — fast, non-streaming call */
+async function classifyIntentWithLLM(message: string): Promise<string | null> {
+  try {
+    console.log("[MCP Brain] LLM classifying:", message.slice(0, 60));
+    const response = await ollamaRequest<{ response: string; done: boolean }>("/api/generate", {
+      model: _currentModel,
+      prompt: CLASSIFY_PROMPT + `"${message}"`,
+      stream: false,
+      options: {
+        num_predict: 20,     // Very short response — just a tool name
+        temperature: 0.1,    // Deterministic
+      },
+    });
+
+    const raw = response.data.response?.trim().toLowerCase() ?? "";
+    // Extract the tool name — model might add quotes, punctuation, or explanation
+    const toolName = raw
+      .split("\n")[0]                          // First line only
+      .replace(/["`'*]/g, "")                 // Strip quotes/markdown
+      .replace(/^\s*tool\s*:\s*/i, "")        // Strip "tool:" prefix
+      .replace(/\s*[-—(].*/g, "")             // Strip trailing explanation
+      .trim();
+
+    console.log("[MCP Brain] LLM classified as:", toolName);
+
+    // Validate against known tools
+    const VALID_TOOLS = new Set([
+      "read_ideas", "search_ideas", "create_idea", "brainstorm", "delete_idea",
+      "toggle_done", "toggle_favorite", "add_tag", "edit_idea", "set_deadline",
+      "generate_plan", "create_sticky", "create_kanban", "read_kanban",
+      "update_kanban", "read_daily", "update_daily_note", "daily_plan",
+      "get_stats", "weekly_summary", "inject_nexus", "read_boardroom",
+      "list_pending", "clear_pending",
+    ]);
+
+    if (toolName === "none" || !VALID_TOOLS.has(toolName)) {
+      return null;
+    }
+    return toolName;
+  } catch (err) {
+    console.warn("[MCP Brain] LLM classification failed:", err);
+    return null;
+  }
+}
+
+/** Hybrid intent detection: fast regex first, LLM fallback for natural language */
+async function detectIntent(message: string): Promise<string | null> {
+  // 1. Fast-path: regex patterns (instant, no latency)
+  const regexResult = detectIntentRegex(message);
+  if (regexResult) {
+    console.log("[MCP Brain] Regex matched:", regexResult);
+    return regexResult;
+  }
+
+  // 2. Skip LLM classification for very short messages or greetings
+  const lower = message.toLowerCase().trim();
+  if (lower.length < 4) return null;
+  if (/^(hola|hi|hello|hey|buenos?\s*d[ií]as?|buenas?\s*(tardes?|noches?)|good\s*(morning|afternoon|evening)|thanks?|gracias|ok|vale)$/i.test(lower)) {
+    return null;
+  }
+
+  // 3. LLM fallback: ask the model to classify
+  return await classifyIntentWithLLM(message);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -957,7 +1072,7 @@ CAPABILITIES (all handled automatically by the system):
 - READ: ideas, daily notes, kanban boards, boardroom sessions, stats, weekly summary
 - CREATE: ideas, sticky notes, kanban cards, daily plans, brainstorms, structured plans with dates
 - UPDATE: edit idea text, add tags, set deadlines, mark done/favorite
-- DELETE: individual or bulk delete ideas, kanban cards, daily notes
+- DELETE: individual or bulk delete ideas, kanban cards, daily notes (with confirmation)
 - DIAGRAMS: inject mind maps into the Nexus canvas
 - FILES: user can attach local files as context for any operation
 
@@ -966,7 +1081,9 @@ RULES:
 - NEVER output "[MCP ACTION]", "[MCP DATA]", or "[MCP ERROR]" — those are system-internal.
 - NEVER simulate or pretend to execute actions.
 - NEVER invent or fabricate data. Only present what the system provides.
-- Respond in the same language the user writes in. Be concise but helpful.`;
+- Respond in the same language the user writes in. Be concise but helpful.
+- If the user seems lost, proactively suggest what you can do. Example: "I can show your ideas, create new ones, brainstorm, make plans, manage your kanban board, and more. Just tell me what you need!"
+- You understand natural language — users do NOT need to use specific keywords or commands.`;
 
 export const NO_MCP_SYSTEM_PROMPT = `You are IdeaBlast Companion, a local AI assistant. You are NOT connected to IdeaBlast's MCP server.
 
@@ -1005,7 +1122,7 @@ export async function processWithMcp(
     _pendingAction = null;
   }
 
-  const intent = detectIntent(userMessage);
+  const intent = await detectIntent(userMessage);
   if (!intent) {
     return { systemPrompt: MCP_SYSTEM_PROMPT, toolResult: null };
   }
