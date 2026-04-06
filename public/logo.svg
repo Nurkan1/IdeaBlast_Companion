@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="100" fill="#0f172a"/>
+  <!-- Hexagonal background glow -->
+  <path d="M256 50L433.5 152.5V357.5L256 460L78.5 357.5V152.5L256 50Z" stroke="#00fff5" stroke-width="8" stroke-opacity="0.3" />
+  <!-- Main lightning strike -->
+  <path d="M290 80L160 280H260L220 440L350 240H250L290 80Z" fill="#00fff5">
+    <animate attributeName="opacity" values="1;0.8;1" dur="2s" repeatCount="indefinite" />
+  </path>
+  <!-- Cyberpunk sparks -->
+  <circle cx="400" cy="150" r="4" fill="#ff00ff" />
+  <circle cx="120" cy="380" r="3" fill="#00fff5" />
+  <circle cx="430" cy="320" r="5" fill="#facc15" />
+</svg>
