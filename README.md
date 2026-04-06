@@ -23,6 +23,16 @@ ollama pull gemma3:4b
 ### 2. Install IdeaBlast Companion
 Download the latest installer from [Releases](https://github.com/Nurkan1/IdeaBlast_Companion/releases):
 - **Windows**: `.exe` installer (recommended) or `.msi`
+- **Linux** (Kali, Ubuntu, Debian): `.deb` package or `.AppImage` (universal)
+
+```bash
+# Linux .deb install
+sudo dpkg -i IdeaBlast.Companion_1.1.0_amd64.deb
+
+# Linux AppImage (no install needed)
+chmod +x IdeaBlast.Companion_1.1.0_amd64.AppImage
+./IdeaBlast.Companion_1.1.0_amd64.AppImage
+```
 
 ### 3. Connect to IdeaBlast
 1. Open [IdeaBlast](https://ideablast.app) in your browser
@@ -33,34 +43,43 @@ That's it. Start chatting with your local AI to manage your ideas.
 
 ## Features
 
+### Intelligent AI — Understands Natural Language
+No need to memorize commands. Just talk naturally in any language:
+- "What do I have saved?" → reads your ideas
+- "Give me 5 ideas about marketing" → brainstorms and saves them
+- "Get rid of all that" → shows delete preview + asks confirmation
+- "How productive was I this week?" → weekly summary
+
+The system uses **hybrid intent detection**: fast regex for common commands + LLM classification fallback for natural language. Works with any phrasing, any language, typos included.
+
 ### AI Chat with Local Models
 - Auto-discovers Ollama on `localhost:11434`
 - Switch between any installed model instantly
 - Streaming responses in real-time
 - Attach local files (code, text, images) as context
+- **Copy any response** with one click
+- **New Chat** button to start fresh conversations
 
 ### Full IdeaBlast Integration via MCP
 
 Every IdeaBlast feature is accessible from the chat:
 
-| Command | What it does |
-|---------|-------------|
-| "show my ideas" | Read all ideas from IdeaBlast |
-| "search ideas about React" | Search by text or tags |
-| "create an idea about..." | Create a new idea card |
-| "create a plan to learn Tauri in 2 weeks" | Generate a plan with dated steps |
-| "brainstorm ideas about productivity" | Generate 5-8 ideas and save them |
-| "delete them" / "borra las ideas" | Preview + confirm before deleting |
-| "mark as done" / "mark all as done" | Toggle done status |
-| "add tags: frontend, react" | Add tags to ideas |
-| "set deadline to friday" | Set deadlines (supports Spanish dates) |
-| "show my kanban board" | Read kanban cards |
-| "create kanban card: Fix login bug" | Create cards in any column |
-| "show my daily notes" | Read sticky notes |
-| "plan my day: meeting, code review, deploy" | Create daily plan with colored notes |
-| "show my stats" | Productivity overview |
-| "weekly summary" | Last 7 days review |
-| "create a mind map for this idea" | Inject diagram into Nexus canvas |
+| Action | Examples |
+|--------|----------|
+| Read ideas | "show my ideas", "what do I have?", "list everything" |
+| Search | "search ideas about React", "find anything related to AI" |
+| Create idea | "create an idea about...", "save this thought: ..." |
+| Create plan | "create a plan to learn Tauri in 2 weeks" |
+| Brainstorm | "give me 5 ideas about productivity", "brainstorm marketing" |
+| Delete | "delete them", "remove the last 3", "borra todo" |
+| Mark done | "mark as done", "complete all ideas" |
+| Add tags | "add tags: frontend, react" |
+| Set deadline | "set deadline to friday", "due in 3 days" |
+| Kanban | "show kanban board", "create card: Fix login bug" |
+| Daily notes | "show my notes", "plan my day: meeting, review, deploy" |
+| Stats | "show my stats", "how productive am I?" |
+| Weekly review | "weekly summary", "what did I do this week?" |
+| Mind map | "create a mind map for this idea" |
 
 ### Smart Safety for Dangerous Actions
 
@@ -69,8 +88,8 @@ Delete operations always show a preview first and ask for confirmation:
 ```
 User: "delete all my ideas"
 
-AI: ⚠️ DELETE PREVIEW — 12 ideas will be permanently deleted:
-  1. Learn React hooks [#frontend] 📅8 apr
+AI: DELETE PREVIEW — 12 ideas will be permanently deleted:
+  1. Learn React hooks [#frontend]
   2. Design new landing page [#design]
   3. Fix authentication bug [#backend, #urgent]
   ...
@@ -79,19 +98,28 @@ Say "yes" to confirm or "no" to cancel.
 
 User: "yes"
 
-AI: ✅ 12 ideas deleted
+AI: 12 ideas deleted
 ```
 
-### Works with Any Language
+### Multilingual Support
 Full support for English and Spanish commands, dates, and responses. The AI responds in whatever language you write in.
 
 ### Attach Local Files
-Click the 📎 button to attach files as context:
+Click the paperclip button to attach files as context:
 - **Code**: `.js`, `.ts`, `.py`, `.rs`, `.json`, `.html`, `.css`, etc.
 - **Documents**: `.txt`, `.md`, `.csv`, `.yaml`, `.toml`
 - **Images**: `.png`, `.jpg`, `.gif`, `.webp`
 
 Example: Attach a `requirements.txt` and say "create a plan for this project" — the AI reads the file and generates a specific plan based on its contents.
+
+## Supported Platforms
+
+| Platform | Format | Notes |
+|----------|--------|-------|
+| Windows 10/11 | `.exe` / `.msi` | Recommended: `.exe` installer |
+| Kali Linux | `.deb` | `sudo dpkg -i` |
+| Ubuntu / Debian | `.deb` | `sudo dpkg -i` |
+| Any Linux | `.AppImage` | Universal, no install needed |
 
 ## Supported Models
 
@@ -120,13 +148,15 @@ ollama pull gemma3:4b
 | Bundler | Vite 5 |
 | AI Backend | Ollama (local) |
 | Integration | MCP (Model Context Protocol) |
+| CI/CD | GitHub Actions (Windows + Linux) |
 | Styling | Custom Cyberpunk CSS |
 
 ## Development
 
 ### Requirements
-- **Node.js** >= 20.x
+- **Node.js** >= 22.x
 - **Rust** (latest stable) — [Install via rustup](https://rustup.rs/)
+- **Ollama** — [Install from ollama.ai](https://ollama.ai/)
 
 ### Setup
 ```bash
@@ -138,7 +168,8 @@ npm run tauri dev
 
 ### Build
 ```bash
-# Produces .msi and .exe installers in src-tauri/target/release/bundle/
+# Windows: produces .msi and .exe installers
+# Linux: produces .deb and .AppImage
 npm run tauri build
 ```
 
@@ -148,23 +179,22 @@ npm run tauri build
 IdeaBlast_Companion/
 ├── src/
 │   ├── components/
-│   │   ├── ChatPanel.tsx          # Main chat UI with file attachments
-│   │   ├── ChatView.tsx           # Standalone chat view
-│   │   ├── ModelSwitcher.tsx      # Model selector dropdown
-│   │   └── OllamaOfflineBanner.tsx
+│   │   └── ChatPanel.tsx          # Chat UI, copy, toolbar, branding
 │   ├── hooks/
 │   │   ├── useChat.ts             # Chat + MCP integration hook
 │   │   ├── useOllamaDiscovery.ts  # Ollama auto-detection
 │   │   └── useMcpStatus.ts        # MCP server health polling
 │   ├── lib/
-│   │   ├── mcpBrain.ts            # Intent detection + tool orchestration
+│   │   ├── mcpBrain.ts            # Hybrid intent detection + MCP tools
 │   │   ├── mcpClient.ts           # MCP file I/O (inbox, snapshot, actions)
 │   │   └── httpProxy.ts           # CORS bypass via Rust
 │   ├── App.tsx
-│   └── styles.css                 # Cyberpunk neon theme
+│   └── styles.css                 # Cyberpunk dark theme
 ├── src-tauri/
 │   ├── src/lib.rs                 # Rust backend (Ollama, MCP, file reading)
 │   └── tauri.conf.json
+├── .github/workflows/
+│   └── release.yml                # CI/CD: auto-build Windows + Linux
 ├── package.json
 └── vite.config.ts
 ```
@@ -175,7 +205,7 @@ IdeaBlast_Companion/
 User Input → ChatPanel → useChat hook
                             ↓
                      mcpBrain.processWithMcp()
-                     ├── Detect intent (regex patterns)
+                     ├── Detect intent (hybrid: regex + LLM fallback)
                      ├── Check pending confirmations
                      ├── Execute MCP tool
                      │   ├── Read snapshot.json
@@ -206,5 +236,5 @@ MIT
 ---
 
 <p align="center">
-  Built with Tauri + Ollama + MCP by <a href="https://github.com/Nurkan1">PYSBG</a>
+  Made for <a href="https://ideablast.app">IdeaBlast</a> · Built with Tauri + Ollama + MCP by <a href="https://github.com/Nurkan1">PYSBG</a>
 </p>
