@@ -1,12 +1,14 @@
 # ⚡ IdeaBlast Companion
 
-> Local AI desktop app powered by Tauri v2 + React — designed for Windows users running Ollama locally.
+> The native desktop bridge for **[IdeaBlast](https://github.com/Nurkan1)** — connects your local AI (Ollama) to the IdeaBlast ecosystem via MCP.
 
-![IdeaBlast Companion](public/icon-512x512.png)
+<p align="center">
+  <img src="public/ideblastapp.png" alt="IdeaBlast - Encrypted · Local First · Unstoppable" width="100%" />
+</p>
 
 ## Overview
 
-IdeaBlast Companion is a lightweight native Windows application that connects to your **local Ollama instance** with zero configuration. It auto-discovers available models and provides a sleek cyberpunk-themed interface to interact with them.
+IdeaBlast Companion is a lightweight native desktop app that connects your **local Ollama instance** to the IdeaBlast platform via MCP (Model Context Protocol). Zero configuration, zero cloud, zero tracking.
 
 **Plug & Play** — If Ollama is running, you're ready to go.
 
