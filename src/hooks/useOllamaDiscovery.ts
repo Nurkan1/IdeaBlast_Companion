@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
 
 /** Shape of a single model entry returned by the Ollama /api/tags endpoint */
 export interface OllamaModel {
@@ -8,6 +8,10 @@ export interface OllamaModel {
   modified_at: string;
   size: number;
   digest: string;
+}
+
+interface OllamaTagsResponse {
+  models: OllamaModel[];
 }
 
 export interface OllamaDiscoveryState {
@@ -24,13 +28,11 @@ export interface OllamaDiscoveryState {
 }
 
 const OLLAMA_BASE = "http://127.0.0.1:11434";
-const TAGS_ENDPOINT = `${OLLAMA_BASE}/api/tags`;
-const PING_TIMEOUT_MS = 5_000;
 
 /**
  * Auto-discovery hook that probes the local Ollama instance on startup.
- * Uses the Tauri HTTP plugin so the request goes through the Rust side-car
- * and is governed by the capability allow-list.
+ * Uses a Tauri command (Rust) to make the HTTP request directly —
+ * bypasses CORS and WebView scope restrictions entirely.
  */
 export function useOllamaDiscovery(): OllamaDiscoveryState {
   const [loading, setLoading] = useState(true);
@@ -45,28 +47,15 @@ export function useOllamaDiscovery(): OllamaDiscoveryState {
     setModels([]);
 
     try {
-      // AbortController for timeout guard
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
-
-      const response = await fetch(TAGS_ENDPOINT, {
-        method: "GET",
-        signal: controller.signal,
+      const data = await invoke<OllamaTagsResponse>("fetch_ollama_tags", {
+        baseUrl: OLLAMA_BASE,
       });
-
-      clearTimeout(timer);
-
-      if (!response.ok) {
-        throw new Error(`Ollama responded with HTTP ${response.status}`);
-      }
-
-      const data = (await response.json()) as { models: OllamaModel[] };
 
       setModels(data.models ?? []);
       setConnected(true);
     } catch (_err: unknown) {
       const message =
-        _err instanceof Error ? _err.message : "Unknown connection error";
+        typeof _err === "string" ? _err : "Unknown connection error";
       setError(message);
       setConnected(false);
       setModels([]);
