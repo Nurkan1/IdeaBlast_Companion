@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ChatMessage } from "../hooks/useChat";
 
 interface FileAttachment {
@@ -20,11 +21,31 @@ interface ChatPanelProps {
 }
 
 const QUICK_PROMPTS = [
-  { icon: "💡", text: "Show me my ideas", desc: "Read ideas from IdeaBlast" },
-  { icon: "📋", text: "Create a plan to learn React in 2 weeks", desc: "Plan with dates" },
-  { icon: "✨", text: "Brainstorm ideas about productivity", desc: "Generate & save ideas" },
-  { icon: "📊", text: "Show my stats and progress", desc: "Productivity overview" },
+  { icon: "\u{1F4A1}", text: "Show me my ideas", desc: "Read ideas from IdeaBlast" },
+  { icon: "\u{1F4CB}", text: "Create a plan to learn React in 2 weeks", desc: "Plan with dates" },
+  { icon: "\u2728", text: "Brainstorm ideas about productivity", desc: "Generate & save ideas" },
+  { icon: "\u{1F4CA}", text: "Show my stats and progress", desc: "Productivity overview" },
 ];
+
+/** Copy text to clipboard with visual feedback */
+function useCopyFeedback(): [Set<string>, (id: string, text: string) => void] {
+  const [copiedIds, setCopiedIds] = useState<Set<string>>(new Set());
+
+  const copyText = useCallback((id: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIds((prev) => new Set(prev).add(id));
+      setTimeout(() => {
+        setCopiedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 2000);
+    });
+  }, []);
+
+  return [copiedIds, copyText];
+}
 
 export function ChatPanel({
   messages,
@@ -39,6 +60,7 @@ export function ChatPanel({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [copiedIds, copyText] = useCopyFeedback();
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -118,19 +140,52 @@ export function ChatPanel({
     }
   };
 
+  const handleOpenIdeaBlast = () => {
+    openUrl("https://ideablast.app/").catch(console.error);
+  };
+
   const isEmpty = messages.length === 0;
 
   return (
     <div className="chat-container">
+      {/* ── Chat Toolbar (visible when conversation exists) ── */}
+      {!isEmpty && (
+        <div className="chat-toolbar">
+          <div className="chat-toolbar-inner">
+            <span className="chat-toolbar-title">
+              {mcpConnected && <span className="mcp-badge">MCP</span>}
+              {modelName}
+            </span>
+            <div className="chat-toolbar-actions">
+              <button
+                className="toolbar-btn"
+                onClick={onClear}
+                disabled={isStreaming}
+                title="New conversation"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                New Chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Messages or Welcome ── */}
       {isEmpty ? (
         <div className="chat-welcome">
           <img src="/logo.svg" alt="IdeaBlast" className="chat-welcome-logo" />
           <h2>IdeaBlast Companion</h2>
           <p>
-            Your local AI assistant connected to IdeaBlast.
+            Your local AI assistant connected to{" "}
+            <a className="ideablast-link" onClick={handleOpenIdeaBlast}>
+              IdeaBlast
+            </a>
+            .
             {mcpConnected
-              ? " MCP Sync active — I can manage your ideas."
+              ? " MCP Sync active \u2014 I can manage your ideas."
               : " Start MCP Sync in IdeaBlast to manage ideas."}
           </p>
           <div className="quick-prompts">
@@ -155,21 +210,44 @@ export function ChatPanel({
                   {msg.role === "user" ? "U" : "AI"}
                 </div>
                 <div className="msg-body">
-                  <div className="msg-name">
-                    {msg.role === "user" ? "You" : modelName || "AI"}
+                  <div className="msg-header">
+                    <div className="msg-name">
+                      {msg.role === "user" ? "You" : modelName || "AI"}
+                    </div>
+                    {/* ── Action buttons ── */}
+                    {msg.content && (
+                      <div className="msg-actions">
+                        <button
+                          className={`msg-action-btn ${copiedIds.has(msg.id) ? "copied" : ""}`}
+                          onClick={() => copyText(msg.id, msg.content)}
+                          title={copiedIds.has(msg.id) ? "Copied!" : "Copy message"}
+                        >
+                          {copiedIds.has(msg.id) ? (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          ) : (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {msg.mcpTool && (
                     <div className={`mcp-tool-call ${
-                      msg.mcpTool.statusMessage.includes("confirm") || msg.mcpTool.statusMessage.includes("⚠️")
+                      msg.mcpTool.statusMessage.includes("confirm") || msg.mcpTool.statusMessage.includes("\u26A0\uFE0F")
                         ? "mcp-confirm"
-                        : msg.mcpTool.statusMessage.includes("✅")
+                        : msg.mcpTool.statusMessage.includes("\u2705")
                         ? "mcp-success"
-                        : msg.mcpTool.statusMessage.includes("❌")
+                        : msg.mcpTool.statusMessage.includes("\u274C")
                         ? "mcp-cancelled"
                         : ""
                     }`}>
                       <div className="mcp-tool-header">
-                        ⚡ MCP: {msg.mcpTool.statusMessage}
+                        \u26A1 MCP: {msg.mcpTool.statusMessage}
                       </div>
                       {msg.mcpTool.progressSteps && msg.mcpTool.progressSteps.length > 0 && (
                         <div className="mcp-progress-log">
@@ -195,7 +273,7 @@ export function ChatPanel({
 
             {error && (
               <div className="chat-error">
-                <div className="chat-error-inner">⚠ {error}</div>
+                <div className="chat-error-inner">\u26A0 {error}</div>
               </div>
             )}
 
@@ -212,12 +290,12 @@ export function ChatPanel({
             <div className="attachments-row">
               {attachments.map((att, i) => (
                 <div key={i} className="att-chip">
-                  <span>{att.isImage ? "🖼" : "📄"} {att.name}</span>
+                  <span>{att.isImage ? "\u{1F5BC}" : "\u{1F4C4}"} {att.name}</span>
                   <button
                     className="att-chip-remove"
                     onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
                   >
-                    ×
+                    \u00D7
                   </button>
                 </div>
               ))}
@@ -233,7 +311,7 @@ export function ChatPanel({
                 disabled={isStreaming}
                 title="Attach file"
               >
-                📎
+                {"\uD83D\uDCCE"}
               </button>
             </div>
 
@@ -244,7 +322,7 @@ export function ChatPanel({
               onKeyDown={handleKeyDown}
               placeholder={
                 mcpConnected
-                  ? "Type a message or ask to manage your ideas..."
+                  ? "Ask anything \u2014 I understand natural language..."
                   : "Type a message..."
               }
               disabled={isStreaming}
@@ -259,7 +337,7 @@ export function ChatPanel({
                   disabled={isStreaming}
                   title="Clear chat"
                 >
-                  🗑
+                  {"\uD83D\uDDD1"}
                 </button>
               )}
               <button
@@ -268,14 +346,15 @@ export function ChatPanel({
                 disabled={isStreaming || (!input.trim() && attachments.length === 0)}
                 title="Send"
               >
-                ▶
+                {"\u25B6"}
               </button>
             </div>
           </div>
 
           <div className="input-hint">
-            {modelName} · Shift+Enter for new line
-            {mcpConnected && " · MCP Sync active"}
+            <span>{modelName} \u00B7 Shift+Enter for new line{mcpConnected && " \u00B7 MCP Sync active"}</span>
+            <span className="input-hint-separator">\u00B7</span>
+            <a className="input-hint-link" onClick={handleOpenIdeaBlast}>ideablast.app</a>
           </div>
         </div>
       </div>

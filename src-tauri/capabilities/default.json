@@ -1,10 +1,11 @@
 {
   "identifier": "default",
-  "description": "Capability for the main window with dialog and filesystem access",
+  "description": "Capability for the main window with dialog, filesystem, and URL opener access",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "opener:default"
   ]
 }

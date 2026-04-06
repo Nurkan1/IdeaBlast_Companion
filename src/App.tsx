@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useOllamaDiscovery } from "./hooks/useOllamaDiscovery";
 import { useChat, setMcpConnected } from "./hooks/useChat";
 import { useMcpStatus } from "./hooks/useMcpStatus";
@@ -78,8 +79,15 @@ function App() {
         )}
 
         <div className="sidebar-footer">
+          <a
+            className="sidebar-footer-brand"
+            onClick={() => openUrl("https://ideablast.app/").catch(console.error)}
+          >
+            <img src="/logo.svg" alt="IdeaBlast" className="sidebar-footer-logo" />
+            ideablast.app
+          </a>
           <p className="sidebar-footer-text">
-            v0.1.0 · Powered by Ollama
+            v1.1.0 · Powered by Ollama
           </p>
         </div>
       </aside>

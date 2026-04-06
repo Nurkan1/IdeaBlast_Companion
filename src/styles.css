@@ -199,6 +199,35 @@ html, body, #root {
   padding: 12px;
   border-top: 1px solid var(--border);
   -webkit-app-region: no-drag;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+  opacity: 0.8;
+}
+
+.sidebar-footer-brand:hover {
+  opacity: 1;
+  filter: brightness(1.2);
+}
+
+.sidebar-footer-logo {
+  width: 14px;
+  height: 14px;
+  filter: drop-shadow(0 0 4px var(--accent));
 }
 
 .sidebar-footer-text {
@@ -323,6 +352,76 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* ── Chat toolbar (top bar when conversation exists) ──────── */
+
+.chat-toolbar {
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.chat-toolbar-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-toolbar-title {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 4px;
+  color: var(--green);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-toolbar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  border-color: var(--border-focus);
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ── Messages ──────────────────────────────────────────────── */
 
 .chat-messages {
@@ -374,6 +473,19 @@ html, body, #root {
   max-width: 400px;
   line-height: 1.6;
   margin-bottom: 24px;
+}
+
+.ideablast-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+  transition: opacity 0.12s;
+}
+
+.ideablast-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
 }
 
 .quick-prompts {
@@ -449,17 +561,61 @@ html, body, #root {
   min-width: 0;
 }
 
+.msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
 .msg-name {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 600;
-  margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .msg-row.user .msg-name { color: var(--accent); }
 .msg-row.assistant .msg-name { color: var(--purple); }
+
+/* ── Message action buttons (copy, etc.) ──────────────────── */
+
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-row:hover .msg-actions {
+  opacity: 1;
+}
+
+.msg-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.msg-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.msg-action-btn.copied {
+  color: var(--green);
+  opacity: 1;
+}
 
 .msg-content {
   font-size: 0.88rem;
@@ -724,9 +880,30 @@ html, body, #root {
 }
 
 .input-hint {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   font-size: 0.65rem;
   color: var(--text-muted);
   margin-top: 6px;
   font-family: var(--font-mono);
+}
+
+.input-hint-separator {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.input-hint-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+}
+
+.input-hint-link:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
