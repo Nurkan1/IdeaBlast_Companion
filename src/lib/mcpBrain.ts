@@ -848,9 +848,16 @@ function extractStepsFromResponse(llmResponse: string): string[] {
     }
 
     if (text) {
-      text = text.replace(/\*\*/g, "").replace(/^["']|["']$/g, "").trim();
+      // Clean markdown and common prefixes small models add
+      text = text
+        .replace(/\*\*/g, "")
+        .replace(/^["']|["']$/g, "")
+        .replace(/^(Idea|Step|Paso|Tarea|Task)\s*[:\.]\s*/i, "")
+        .trim();
+      // Skip meta-lines (dates, tags, headers, commentary)
       if (text.length > 5 && text.length < 300 &&
-          !/^(here|these|after|note|this|let me|i |once|summary|resumen|en resumen|the plan|el plan)/i.test(text)) {
+          !/^(here|these|after|note|this|let me|i |once|summary|resumen|en resumen|the plan|el plan)/i.test(text) &&
+          !/^(date|fecha|tags?|etiqueta|deadline|priority|prioridad|status|estado)\s*:/i.test(text)) {
         steps.push(text);
       }
     }
