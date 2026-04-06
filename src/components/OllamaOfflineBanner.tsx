@@ -15,13 +15,13 @@ export function OllamaOfflineBanner({ error, onRetry }: OllamaOfflineBannerProps
         OFFLINE
       </h2>
       <p className="offline-message">
-        Ollama no detectado en el puerto <code>11434</code>.
+        Ollama not detected on port <code>11434</code>.
         <br />
-        Enciende los motores locales para continuar.
+        Start your local engine to continue.
       </p>
       {error && <p className="offline-detail">{error}</p>}
       <button className="retry-btn" onClick={onRetry}>
-        ↻ Reintentar conexión
+        ↻ Retry Connection
       </button>
     </div>
   );

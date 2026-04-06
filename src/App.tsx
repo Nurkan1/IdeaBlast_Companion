@@ -1,59 +1,119 @@
+import { useState, useEffect } from "react";
 import { useOllamaDiscovery } from "./hooks/useOllamaDiscovery";
-import { ModelSwitcher } from "./components/ModelSwitcher";
-import { OllamaOfflineBanner } from "./components/OllamaOfflineBanner";
+import { useChat, setMcpConnected } from "./hooks/useChat";
+import { useMcpStatus } from "./hooks/useMcpStatus";
+import { ChatPanel } from "./components/ChatPanel";
 
 function App() {
   const { loading, connected, models, error, retry } = useOllamaDiscovery();
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const mcpStatus = useMcpStatus();
+
+  // Auto-select first model
+  const activeModel = selectedModel || models[0]?.name || "";
+  useEffect(() => {
+    if (models.length > 0 && !selectedModel) {
+      setSelectedModel(models[0].name);
+    }
+  }, [models, selectedModel]);
+
+  // Sync MCP status with the chat hook's brain
+  useEffect(() => {
+    setMcpConnected(mcpStatus.connected);
+  }, [mcpStatus.connected]);
+
+  const chat = useChat(activeModel);
 
   return (
     <div className="app-shell">
-      {/* ── Top Bar ── */}
-      <header className="top-bar">
-        <div className="brand">
-          <img src="/logo.svg" alt="IdeaBlast" className="brand-logo" />
-          <span className="brand-name">IdeaBlast Companion</span>
+      {/* ── Sidebar ── */}
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <img src="/logo.svg" alt="IdeaBlast" className="sidebar-logo" />
+          <span className="sidebar-title">IdeaBlast Companion</span>
         </div>
 
-        <div className="top-bar-right">
-          {connected && <ModelSwitcher models={models} />}
-          <span className={`status-dot ${connected ? "online" : "offline"}`} />
-        </div>
-      </header>
+        <button className="sidebar-new-chat" onClick={chat.clearChat}>
+          + New Chat
+        </button>
 
-      {/* ── Main Content ── */}
-      <main className="main-content">
+        {/* Connection status */}
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Connections</div>
+
+          <div className="status-card">
+            <span className={`status-indicator ${connected ? "online" : "offline"}`} />
+            <span className="status-label">Ollama</span>
+            <span className="status-value">
+              {loading ? "..." : connected ? "Online" : "Offline"}
+            </span>
+          </div>
+
+          <div className="status-card">
+            <span className={`status-indicator ${mcpStatus.connected ? "online" : "offline"}`} />
+            <span className="status-label">MCP Sync</span>
+            <span className="status-value">
+              {mcpStatus.connected ? "Active" : "Inactive"}
+            </span>
+          </div>
+        </div>
+
+        {/* Model selector */}
+        {connected && models.length > 0 && (
+          <div className="model-select-wrap">
+            <div className="sidebar-section-title">AI Model</div>
+            <select
+              className="model-select"
+              value={activeModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              aria-label="Select AI model"
+            >
+              {models.map((m) => (
+                <option key={m.digest} value={m.name}>
+                  {m.name} ({(m.size / 1_073_741_824).toFixed(1)}GB)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="sidebar-footer">
+          <p className="sidebar-footer-text">
+            v0.1.0 · Powered by Ollama
+          </p>
+        </div>
+      </aside>
+
+      {/* ── Main Panel ── */}
+      <main className="main-panel">
         {loading && (
-          <div className="loader-container">
+          <div className="center-state">
             <div className="loader-ring" />
-            <p className="loader-text">Escaneando red local…</p>
+            <p>Connecting to Ollama...</p>
           </div>
         )}
 
         {!loading && !connected && (
-          <OllamaOfflineBanner error={error} onRetry={retry} />
+          <div className="center-state">
+            <div className="offline-card">
+              <h2>Ollama not detected</h2>
+              <p>Make sure Ollama is running on <code>localhost:11434</code></p>
+              {error && <p className="offline-error">{error}</p>}
+              <button className="btn-outline" onClick={retry}>Retry Connection</button>
+            </div>
+          </div>
         )}
 
         {!loading && connected && (
-          <div className="connected-view">
-            <h1 className="hero-title">
-              Motores <span className="neon-accent">encendidos</span>
-            </h1>
-            <p className="hero-sub">
-              {models.length} modelo{models.length !== 1 ? "s" : ""} local
-              {models.length !== 1 ? "es" : ""} detectado
-              {models.length !== 1 ? "s" : ""}.
-            </p>
-            <ul className="model-list">
-              {models.map((m) => (
-                <li key={m.digest} className="model-card">
-                  <span className="model-name">{m.name}</span>
-                  <span className="model-size">
-                    {(m.size / 1_073_741_824).toFixed(1)} GB
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ChatPanel
+            messages={chat.messages}
+            isStreaming={chat.isStreaming}
+            error={chat.error}
+            onSend={chat.sendMessage}
+            onClear={chat.clearChat}
+            mcpConnected={mcpStatus.connected}
+            modelName={activeModel}
+          />
         )}
       </main>
     </div>
