@@ -136,10 +136,13 @@ const INTENT_PATTERNS: IntentPattern[] = [
   { keywords: /\b(kanban|tarjeta)\b.*\b(crea|crear|nueva?|new|add|a[ñn]ad)\b/i, tool: "create_kanban" },
   { keywords: /\b(crea|crear|nueva?|new|add|a[ñn]ad)\b.*\b(kanban|tarjeta|card)\b/i, tool: "create_kanban" },
 
-  // ── BRAINSTORM ──
+  // ── BRAINSTORM / MULTIPLE IDEAS (must be BEFORE create_idea) ──
+  // Catches: "crea 3 ideas", "crea tres ideas", "generate 5 ideas", "dame 4 ideas", "quiero ideas sobre..."
+  { keywords: /\b(crea|crear|create|genera|generate|dame|quiero|hazme|make)\b.*\b(\d+|dos|tres|cuatro|cinco|seis|siete|ocho|diez|two|three|four|five|six|seven|eight|ten)\b.*\b(ideas?)\b/i, tool: "brainstorm" },
+  { keywords: /\b(\d+|dos|tres|cuatro|cinco|seis|siete|ocho|diez)\b.*\b(ideas?)\b/i, tool: "brainstorm" },
   { keywords: /\b(brainstorm|lluvia de ideas|ideas sobre|ideas about|dame ideas|give me ideas|piensa en|think of|genera\w* ideas)\b/i, tool: "brainstorm" },
 
-  // ── CREATE IDEA ──
+  // ── CREATE IDEA (single) ──
   { keywords: /\b(crea|crear|create|nueva? idea|new idea|a[ñn]ad|add idea|agrega|anota|apunta|guarda|save|write down)\b/i, tool: "create_idea" },
 
   // ── CREATE STICKY NOTE ──
@@ -317,12 +320,13 @@ async function executeTool(tool: string, userMessage: string, fileContexts?: Fil
       // ── BRAINSTORM (LLM-powered) ──
       case "brainstorm": {
         const topic = extractTopic(userMessage);
+        const count = extractIdeaCount(userMessage);
         const fileSection = buildFileSection(fileContexts);
         return {
           toolName: tool, success: true,
-          contextData: `The user wants to brainstorm about: "${topic}".${fileSection}
+          contextData: `The user wants ${count} ideas about: "${topic}".${fileSection}
 
-Write a numbered list of 5-8 creative and actionable ideas. Use this exact format:
+Write a numbered list of exactly ${count} creative, varied, and actionable ideas. Use this exact format:
 
 1. Idea description
 2. Idea description
@@ -727,8 +731,39 @@ function extractTagNames(msg: string): string[] {
 }
 
 function extractTopic(msg: string): string {
-  const match = msg.match(/\b(?:sobre|about|de|on)\s+(.+)/i);
-  return match?.[1]?.trim() || msg.replace(/\b(brainstorm|genera\w*|generate|ideas|lluvia|dame|give me|piensa)\b/gi, "").trim();
+  const match = msg.match(/\b(?:sobre|about|de|on|para|for)\s+(.+)/i);
+  if (match) return match[1].trim();
+  // Remove all command words, numbers, and filler to get the topic
+  return msg
+    .replace(/\b(brainstorm|genera\w*|generate|ideas?|lluvia|dame|give me|piensa|crea\w*|create|hazme|make|quiero|want)\b/gi, "")
+    .replace(/\b(\d+|dos|tres|cuatro|cinco|seis|siete|ocho|diez|two|three|four|five|six|seven|eight|ten)\b/gi, "")
+    .replace(/\b(en|in|un[ao]?|the|a|para|for|new|nuev[ao]s?)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim() || msg;
+}
+
+/** Extract how many ideas the user wants — defaults to 5 */
+function extractIdeaCount(msg: string): number {
+  const numMatch = msg.match(/(\d+)/);
+  if (numMatch) return Math.min(Math.max(parseInt(numMatch[1]), 1), 15);
+
+  const words: Record<string, number> = {
+    un: 1, una: 1, one: 1,
+    dos: 2, two: 2,
+    tres: 3, three: 3,
+    cuatro: 4, four: 4,
+    cinco: 5, five: 5,
+    seis: 6, six: 6,
+    siete: 7, seven: 7,
+    ocho: 8, eight: 8,
+    nueve: 9, nine: 9,
+    diez: 10, ten: 10,
+  };
+  const lower = msg.toLowerCase();
+  for (const [word, num] of Object.entries(words)) {
+    if (lower.includes(word)) return num;
+  }
+  return 5; // default
 }
 
 function extractStickyColor(msg: string): string {
