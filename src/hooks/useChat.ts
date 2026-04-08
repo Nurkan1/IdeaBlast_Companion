@@ -17,8 +17,12 @@ export interface UseChatReturn {
   messages: ChatMessage[];
   isStreaming: boolean;
   error: string | null;
+  currentChatId: string | null;
+  dirty: boolean;
   sendMessage: (content: string, images?: string[]) => Promise<void>;
   clearChat: () => void;
+  loadMessages: (id: string, messages: ChatMessage[]) => void;
+  markSaved: (id: string) => void;
 }
 
 /** Whether MCP connection is available — set by App */
@@ -41,6 +45,8 @@ export function useChat(model: string): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
   const streamBuffer = useRef("");
 
   const sendMessage = useCallback(
@@ -86,6 +92,7 @@ export function useChat(model: string): UseChatReturn {
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setDirty(true);
       setIsStreaming(true);
       streamBuffer.current = "";
 
@@ -185,8 +192,33 @@ export function useChat(model: string): UseChatReturn {
   const clearChat = useCallback(() => {
     setMessages([]);
     setError(null);
+    setCurrentChatId(null);
+    setDirty(false);
     streamBuffer.current = "";
   }, []);
 
-  return { messages, isStreaming, error, sendMessage, clearChat };
+  const loadMessages = useCallback((id: string, msgs: ChatMessage[]) => {
+    setMessages(msgs);
+    setCurrentChatId(id);
+    setDirty(false);
+    setError(null);
+    streamBuffer.current = "";
+  }, []);
+
+  const markSaved = useCallback((id: string) => {
+    setCurrentChatId(id);
+    setDirty(false);
+  }, []);
+
+  return {
+    messages,
+    isStreaming,
+    error,
+    currentChatId,
+    dirty,
+    sendMessage,
+    clearChat,
+    loadMessages,
+    markSaved,
+  };
 }

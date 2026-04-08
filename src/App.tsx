@@ -1,9 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useOllamaDiscovery } from "./hooks/useOllamaDiscovery";
 import { useChat, setMcpConnected } from "./hooks/useChat";
 import { useMcpStatus } from "./hooks/useMcpStatus";
 import { ChatPanel } from "./components/ChatPanel";
+import { HistorySidebar } from "./components/HistorySidebar";
+import { FolderPickerModal } from "./components/FolderPickerModal";
+import { useSettings } from "./lib/settings";
+import {
+  saveConversation,
+  loadConversation,
+  deriveTitle,
+  makeChatId,
+  exportConversationMd,
+  type SavedConversation,
+} from "./lib/conversationStore";
+import { conversationToMarkdown } from "./lib/markdownExport";
 
 function App() {
   const { loading, connected, models, error, retry } = useOllamaDiscovery();
@@ -24,6 +36,74 @@ function App() {
   }, [mcpStatus.connected]);
 
   const chat = useChat(activeModel);
+  const { settings, loaded: settingsLoaded, update: updateSettings } = useSettings();
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+
+  const handleSaveCurrent = useCallback(async () => {
+    if (!settings.conversationsFolder || chat.messages.length === 0) return;
+    const id = chat.currentChatId ?? makeChatId(deriveTitle(chat.messages));
+    const now = Date.now();
+    const conv: SavedConversation = {
+      id,
+      title: deriveTitle(chat.messages),
+      model: activeModel,
+      createdAt: now,
+      updatedAt: now,
+      messages: chat.messages,
+    };
+    await saveConversation(settings.conversationsFolder, conv);
+    chat.markSaved(id);
+    setHistoryRefresh((n) => n + 1);
+  }, [settings.conversationsFolder, chat, activeModel]);
+
+  const handleLoadChat = useCallback(
+    async (id: string) => {
+      if (!settings.conversationsFolder) return;
+      try {
+        const conv = await loadConversation(settings.conversationsFolder, id);
+        chat.loadMessages(conv.id, conv.messages);
+      } catch (e) {
+        console.warn("[app] load chat failed:", e);
+      }
+    },
+    [settings.conversationsFolder, chat]
+  );
+
+  const handleExportMd = useCallback(async () => {
+    if (!settings.conversationsFolder || chat.messages.length === 0) return;
+    const id = chat.currentChatId ?? makeChatId(deriveTitle(chat.messages));
+    const md = conversationToMarkdown(deriveTitle(chat.messages), activeModel, chat.messages);
+    await exportConversationMd(settings.conversationsFolder, id, md);
+  }, [settings.conversationsFolder, chat, activeModel]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "n") {
+        e.preventDefault();
+        chat.clearChat();
+      } else if (e.key === "s") {
+        e.preventDefault();
+        handleSaveCurrent().catch(() => {});
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [chat, handleSaveCurrent]);
+
+  // Auto-save after each assistant turn finishes
+  useEffect(() => {
+    if (
+      settings.autoSave &&
+      settings.conversationsFolder &&
+      !chat.isStreaming &&
+      chat.dirty &&
+      chat.messages.length > 0
+    ) {
+      handleSaveCurrent().catch((e) => console.warn("[autosave]", e));
+    }
+  }, [chat.isStreaming, chat.dirty, chat.messages.length, settings.autoSave, settings.conversationsFolder, handleSaveCurrent]);
 
   return (
     <div className="app-shell">
@@ -37,6 +117,13 @@ function App() {
         <button className="sidebar-new-chat" onClick={chat.clearChat}>
           + New Chat
         </button>
+
+        <HistorySidebar
+          folder={settings.conversationsFolder}
+          currentChatId={chat.currentChatId}
+          refreshKey={historyRefresh}
+          onSelect={handleLoadChat}
+        />
 
         {/* Connection status */}
         <div className="sidebar-section">
@@ -86,9 +173,20 @@ function App() {
             <img src="/logo.svg" alt="IdeaBlast" className="sidebar-footer-logo" />
             ideablast.app
           </a>
-          <p className="sidebar-footer-text">
-            v1.1.0 · Powered by Ollama
-          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+            <button
+              className="theme-toggle"
+              onClick={() =>
+                updateSettings({ theme: settings.theme === "dark" ? "light" : "dark" })
+              }
+              title="Toggle theme"
+            >
+              {settings.theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+            </button>
+            <p className="sidebar-footer-text" style={{ margin: 0 }}>
+              v1.1.0
+            </p>
+          </div>
         </div>
       </aside>
 
@@ -121,9 +219,19 @@ function App() {
             onClear={chat.clearChat}
             mcpConnected={mcpStatus.connected}
             modelName={activeModel}
+            dirty={chat.dirty}
+            canPersist={!!settings.conversationsFolder}
+            onSave={handleSaveCurrent}
+            onExportMd={handleExportMd}
           />
         )}
       </main>
+
+      {settingsLoaded && !settings.conversationsFolder && (
+        <FolderPickerModal
+          onPicked={(folder) => updateSettings({ conversationsFolder: folder })}
+        />
+      )}
     </div>
   );
 }

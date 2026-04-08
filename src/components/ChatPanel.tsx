@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../hooks/useChat";
 
 interface FileAttachment {
@@ -18,6 +20,10 @@ interface ChatPanelProps {
   onClear: () => void;
   mcpConnected: boolean;
   modelName: string;
+  dirty?: boolean;
+  canPersist?: boolean;
+  onSave?: () => void;
+  onExportMd?: () => void;
 }
 
 const QUICK_PROMPTS = [
@@ -55,6 +61,10 @@ export function ChatPanel({
   onClear,
   mcpConnected,
   modelName,
+  dirty,
+  canPersist,
+  onSave,
+  onExportMd,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
@@ -157,6 +167,26 @@ export function ChatPanel({
               {modelName}
             </span>
             <div className="chat-toolbar-actions">
+              {canPersist && onSave && (
+                <button
+                  className="toolbar-btn"
+                  onClick={onSave}
+                  disabled={isStreaming || messages.length === 0}
+                  title={dirty ? "Unsaved changes" : "Saved"}
+                >
+                  💾 {dirty ? "Save*" : "Saved"}
+                </button>
+              )}
+              {canPersist && onExportMd && (
+                <button
+                  className="toolbar-btn"
+                  onClick={onExportMd}
+                  disabled={isStreaming || messages.length === 0}
+                  title="Export to Markdown"
+                >
+                  📤 Export MD
+                </button>
+              )}
               <button
                 className="toolbar-btn"
                 onClick={onClear}
@@ -259,7 +289,15 @@ export function ChatPanel({
                     </div>
                   )}
                   <div className="msg-content">
-                    {msg.content || (
+                    {msg.content ? (
+                      msg.role === "assistant" ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      ) : (
+                        msg.content
+                      )
+                    ) : (
                       <span className="typing-dots">
                         <span />
                         <span />

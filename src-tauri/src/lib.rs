@@ -618,6 +618,218 @@ async fn mcp_launch_server() -> Result<(), String> {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Conversation persistence + app settings
+// User picks the folder via the dialog plugin from the frontend.
+// Settings (incl. that folder + theme) live in %APPDATA%/IdeaBlast_Companion.
+// ══════════════════════════════════════════════════════════════
+
+fn settings_dir() -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
+        Ok(std::path::PathBuf::from(appdata).join("IdeaBlast_Companion"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        Ok(std::path::PathBuf::from(home).join(".config").join("ideablast-companion"))
+    }
+}
+
+fn settings_path() -> Result<std::path::PathBuf, String> {
+    Ok(settings_dir()?.join("settings.json"))
+}
+
+#[tauri::command]
+async fn load_app_settings() -> Result<String, String> {
+    let p = settings_path()?;
+    if !p.exists() {
+        return Ok("{}".to_string());
+    }
+    tokio::fs::read_to_string(&p)
+        .await
+        .map_err(|e| format!("Failed to read settings: {}", e))
+}
+
+#[tauri::command]
+async fn save_app_settings(json: String) -> Result<(), String> {
+    let dir = settings_dir()?;
+    if !dir.exists() {
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| format!("Cannot create settings dir: {}", e))?;
+    }
+    tokio::fs::write(settings_path()?, json)
+        .await
+        .map_err(|e| format!("Failed to write settings: {}", e))
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .collect()
+}
+
+fn ensure_folder(folder: &str) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(folder);
+    if !p.exists() {
+        std::fs::create_dir_all(&p).map_err(|e| format!("Cannot create folder: {}", e))?;
+    }
+    Ok(p)
+}
+
+#[tauri::command]
+async fn save_conversation(folder: String, filename: String, json: String) -> Result<(), String> {
+    let dir = ensure_folder(&folder)?;
+    let safe = sanitize_filename(&filename);
+    let path = dir.join(format!("{}.json", safe));
+    tokio::fs::write(&path, json)
+        .await
+        .map_err(|e| format!("Failed to write conversation: {}", e))
+}
+
+#[tauri::command]
+async fn load_conversation(folder: String, filename: String) -> Result<String, String> {
+    let safe = sanitize_filename(&filename);
+    let path = std::path::PathBuf::from(&folder).join(format!("{}.json", safe));
+    tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("Failed to read conversation: {}", e))
+}
+
+#[derive(Serialize)]
+pub struct ConversationMeta {
+    pub id: String,
+    pub title: String,
+    pub model: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub size: u64,
+}
+
+#[tauri::command]
+async fn list_conversations(folder: String) -> Result<Vec<ConversationMeta>, String> {
+    let dir = std::path::PathBuf::from(&folder);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut entries = tokio::fs::read_dir(&dir)
+        .await
+        .map_err(|e| format!("Read dir failed: {}", e))?;
+    let mut out: Vec<ConversationMeta> = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let metadata = match entry.metadata().await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let size = metadata.len();
+        let raw = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+        let title = parsed["title"].as_str().unwrap_or(&id).to_string();
+        let model = parsed["model"].as_str().unwrap_or("").to_string();
+        let created_at = parsed["createdAt"].as_i64().unwrap_or(0);
+        let updated_at = parsed["updatedAt"].as_i64().unwrap_or(0);
+        out.push(ConversationMeta { id, title, model, created_at, updated_at, size });
+    }
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(out)
+}
+
+#[tauri::command]
+async fn delete_conversation(folder: String, filename: String) -> Result<(), String> {
+    let safe = sanitize_filename(&filename);
+    let dir = std::path::PathBuf::from(&folder);
+    let json_path = dir.join(format!("{}.json", safe));
+    let md_path = dir.join(format!("{}.md", safe));
+    if json_path.exists() {
+        tokio::fs::remove_file(&json_path)
+            .await
+            .map_err(|e| format!("Failed to delete: {}", e))?;
+    }
+    if md_path.exists() {
+        let _ = tokio::fs::remove_file(&md_path).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn rename_conversation(folder: String, old_filename: String, new_filename: String) -> Result<(), String> {
+    let dir = std::path::PathBuf::from(&folder);
+    let old_safe = sanitize_filename(&old_filename);
+    let new_safe = sanitize_filename(&new_filename);
+    let from = dir.join(format!("{}.json", old_safe));
+    let to = dir.join(format!("{}.json", new_safe));
+    if !from.exists() {
+        return Err("Source conversation not found".to_string());
+    }
+    // If renaming, also update title inside the JSON
+    let raw = tokio::fs::read_to_string(&from)
+        .await
+        .map_err(|e| format!("Read failed: {}", e))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("Parse failed: {}", e))?;
+    parsed["title"] = serde_json::json!(new_filename);
+    parsed["updatedAt"] = serde_json::json!(chrono::Utc::now().timestamp_millis());
+    let updated = serde_json::to_string_pretty(&parsed).unwrap_or(raw);
+    tokio::fs::write(&to, updated)
+        .await
+        .map_err(|e| format!("Write failed: {}", e))?;
+    if from != to {
+        let _ = tokio::fs::remove_file(&from).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("explorer failed: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("open failed: {}", e))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("xdg-open failed: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_conversation_md(folder: String, filename: String, markdown: String) -> Result<String, String> {
+    let dir = ensure_folder(&folder)?;
+    let safe = sanitize_filename(&filename);
+    let path = dir.join(format!("{}.md", safe));
+    tokio::fs::write(&path, markdown)
+        .await
+        .map_err(|e| format!("Write MD failed: {}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// ══════════════════════════════════════════════════════════════
 // App entry point
 // ══════════════════════════════════════════════════════════════
 
@@ -639,6 +851,15 @@ pub fn run() {
             mcp_check_installed,
             mcp_install,
             mcp_launch_server,
+            load_app_settings,
+            save_app_settings,
+            save_conversation,
+            load_conversation,
+            list_conversations,
+            delete_conversation,
+            rename_conversation,
+            export_conversation_md,
+            open_in_explorer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

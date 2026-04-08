@@ -72,6 +72,14 @@ jobs:
             The native desktop AI assistant for [IdeaBlast](https://ideablast.app).
             Connects your local AI models (Ollama) to IdeaBlast via MCP.
 
+            ### Highlights
+            - 💾 **Persistent conversations** — pick a local folder, auto-saved as JSON
+            - 🗂 **Searchable history sidebar** with rename / delete / export to Markdown
+            - 🎨 **Light & Dark themes** with one-click toggle
+            - 📝 **Markdown rendering** with tables, code blocks and GFM
+            - ✨ Glassmorphism UI, smooth animations, keyboard shortcuts (`Ctrl+N`, `Ctrl+S`)
+            - 🔌 Full IdeaBlast MCP integration preserved — nothing leaves your machine
+
             ### Downloads
             - **Windows**: `.exe` installer (recommended) or `.msi`
             - **Linux**: `.deb` (Debian/Ubuntu/Kali) or `.AppImage` (universal)

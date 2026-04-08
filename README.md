@@ -27,11 +27,11 @@ Download the latest installer from [Releases](https://github.com/Nurkan1/IdeaBla
 
 ```bash
 # Linux .deb install
-sudo dpkg -i IdeaBlast.Companion_1.1.0_amd64.deb
+sudo dpkg -i IdeaBlast.Companion_1.2.0_amd64.deb
 
 # Linux AppImage (no install needed)
-chmod +x IdeaBlast.Companion_1.1.0_amd64.AppImage
-./IdeaBlast.Companion_1.1.0_amd64.AppImage
+chmod +x IdeaBlast.Companion_1.2.0_amd64.AppImage
+./IdeaBlast.Companion_1.2.0_amd64.AppImage
 ```
 
 ### 3. Connect to IdeaBlast
@@ -40,6 +40,18 @@ chmod +x IdeaBlast.Companion_1.1.0_amd64.AppImage
 3. Open IdeaBlast Companion — it connects automatically
 
 That's it. Start chatting with your local AI to manage your ideas.
+
+## What's new in v1.2.0
+
+- **Persistent conversation history** — pick a folder on first launch; every chat is auto-saved as JSON to your local disk. Reload, rename, delete, or export to Markdown anytime.
+- **History sidebar** with built-in search — find any past conversation in seconds.
+- **Light & Dark themes** — toggle from the sidebar; preference is remembered.
+- **Markdown rendering** for AI responses — tables, code blocks, lists, links, blockquotes (GFM).
+- **Glassmorphism UI** — refined sidebar/toolbar with subtle blur and the IdeaBlast accent gradient.
+- **Smooth animations** — fade-in messages, animated typing indicator.
+- **Keyboard shortcuts** — `Ctrl+N` new chat, `Ctrl+S` save current conversation.
+- **Open conversations folder** in your system file manager with one click.
+- All MCP integrations with IdeaBlast remain fully intact and unchanged.
 
 ## Features
 
@@ -57,8 +69,23 @@ The system uses **hybrid intent detection**: fast regex for common commands + LL
 - Switch between any installed model instantly
 - Streaming responses in real-time
 - Attach local files (code, text, images) as context
+- **Markdown rendering** with tables, code blocks, lists and links (GFM)
 - **Copy any response** with one click
 - **New Chat** button to start fresh conversations
+
+### Persistent Conversations *(new in 1.2.0)*
+- Pick any folder on your machine — IdeaBlast Companion saves chats there as JSON
+- Auto-save after every assistant response
+- **Searchable history sidebar** with rename, delete, and export
+- **Export to Markdown** for sharing or archiving
+- **Open folder** in your system file manager from the sidebar
+- 100% local files — nothing ever leaves your machine
+
+### Modern UI *(new in 1.2.0)*
+- **Light & Dark themes** with one-click toggle, persisted across sessions
+- Glassmorphism sidebar and toolbar
+- Smooth message fade-in and animated typing indicator
+- Keyboard shortcuts: `Ctrl+N` new chat · `Ctrl+S` save
 
 ### Full IdeaBlast Integration via MCP
 
@@ -179,14 +206,19 @@ npm run tauri build
 IdeaBlast_Companion/
 ├── src/
 │   ├── components/
-│   │   └── ChatPanel.tsx          # Chat UI, copy, toolbar, branding
+│   │   ├── ChatPanel.tsx          # Chat UI, markdown render, toolbar
+│   │   ├── HistorySidebar.tsx     # Conversation history list + search
+│   │   └── FolderPickerModal.tsx  # First-launch folder picker
 │   ├── hooks/
-│   │   ├── useChat.ts             # Chat + MCP integration hook
+│   │   ├── useChat.ts             # Chat + MCP integration + save/load
 │   │   ├── useOllamaDiscovery.ts  # Ollama auto-detection
 │   │   └── useMcpStatus.ts        # MCP server health polling
 │   ├── lib/
 │   │   ├── mcpBrain.ts            # Hybrid intent detection + MCP tools
 │   │   ├── mcpClient.ts           # MCP file I/O (inbox, snapshot, actions)
+│   │   ├── conversationStore.ts   # Save/load/list conversations
+│   │   ├── markdownExport.ts      # Conversation → Markdown export
+│   │   ├── settings.ts            # App settings (theme, folder, autosave)
 │   │   └── httpProxy.ts           # CORS bypass via Rust
 │   ├── App.tsx
 │   └── styles.css                 # Cyberpunk dark theme
