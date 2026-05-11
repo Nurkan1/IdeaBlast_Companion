@@ -42,3 +42,6 @@ Desktop.ini
 *.sln
 *.sw?
 *.local
+
+# Claude Code worktrees
+.claude/
