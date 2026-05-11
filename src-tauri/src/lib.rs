@@ -183,6 +183,16 @@ pub struct FileContent {
     pub is_image: bool,
 }
 
+// Defense in depth: only allow file extensions that match the frontend dialog
+// filter. Even if a future XSS lets attacker code call this command, they
+// cannot exfiltrate arbitrary files (.ssh keys, password stores, etc.).
+const ALLOWED_FILE_EXTENSIONS: &[&str] = &[
+    "txt", "md", "json", "csv", "py", "js", "ts", "tsx",
+    "rs", "html", "css", "yaml", "yml", "toml",
+    "jsx", "sh", "bat", "ps1", "pdf",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp",
+];
+
 #[tauri::command]
 async fn read_file_content(path: String) -> Result<FileContent, String> {
     let file_path = std::path::Path::new(&path);
@@ -198,7 +208,33 @@ async fn read_file_content(path: String) -> Result<FileContent, String> {
         .to_string_lossy()
         .to_lowercase();
 
+    if !ALLOWED_FILE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "File extension '.{}' is not in the allowed list",
+            ext
+        ));
+    }
+
     let is_image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp");
+
+    // Refuse symlinks — they can point outside the user's intended selection.
+    if let Ok(meta) = tokio::fs::symlink_metadata(&path).await {
+        if meta.file_type().is_symlink() {
+            return Err("Symlinks are not allowed".to_string());
+        }
+    }
+
+    // Cap at 10 MB to avoid accidentally loading huge files into the prompt.
+    const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+    if let Ok(meta) = tokio::fs::metadata(&path).await {
+        if meta.len() > MAX_FILE_BYTES {
+            return Err(format!(
+                "File too large ({} bytes); max is {} bytes",
+                meta.len(),
+                MAX_FILE_BYTES
+            ));
+        }
+    }
 
     let bytes = tokio::fs::read(&path)
         .await
@@ -493,24 +529,32 @@ async fn mcp_check_installed() -> Result<bool, String> {
     Ok(stdout.contains("ideablast-mcp-server"))
 }
 
-/// Install ideablast-mcp-server globally
+/// Install ideablast-mcp-server globally.
+///
+/// Supply-chain note: we pin to ^1.x to accept minor/patch updates but reject
+/// a sudden 2.x major bump (which could be hijacked). Bump this range
+/// deliberately in each Companion release after auditing the new major.
+const MCP_SERVER_VERSION_RANGE: &str = "^1.3.2";
+
 #[tauri::command]
 async fn mcp_install(app: tauri::AppHandle) -> Result<(), String> {
     let _ = app.emit("mcp-install-status", "installing");
+
+    let spec = format!("ideablast-mcp-server@{}", MCP_SERVER_VERSION_RANGE);
 
     #[cfg(target_os = "windows")]
     let output = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         std::process::Command::new("npm")
-            .args(["install", "-g", "ideablast-mcp-server@latest"])
+            .args(["install", "-g", &spec])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| format!("npm install failed: {}", e))?
     };
     #[cfg(not(target_os = "windows"))]
     let output = tokio::process::Command::new("npm")
-        .args(["install", "-g", "ideablast-mcp-server@latest"])
+        .args(["install", "-g", &spec])
         .output()
         .await
         .map_err(|e| format!("npm install failed: {}", e))?;
@@ -670,17 +714,77 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
-fn ensure_folder(folder: &str) -> Result<std::path::PathBuf, String> {
+/// Defense in depth: refuse any folder that looks like a system path or that
+/// the user did not actually choose via the dialog. Returns the canonical
+/// absolute path on success.
+///
+/// The `conversationsFolder` is normally selected via Tauri's native folder
+/// dialog, so this validation only kicks in for tampered settings.json files
+/// or future XSS bugs.
+fn validate_user_folder(folder: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::PathBuf::from(folder);
     if !p.exists() {
-        std::fs::create_dir_all(&p).map_err(|e| format!("Cannot create folder: {}", e))?;
+        return Err(format!("Folder does not exist: {}", folder));
     }
-    Ok(p)
+    if !p.is_dir() {
+        return Err(format!("Not a directory: {}", folder));
+    }
+
+    // Canonicalize to resolve any `..` segments and symlinks before comparing
+    // against the blocklist. Otherwise `~/safe/../Windows` would slip through.
+    let canon = std::fs::canonicalize(&p)
+        .map_err(|e| format!("Cannot canonicalize path: {}", e))?;
+    let canon_str = canon.to_string_lossy().to_lowercase().replace('\\', "/");
+
+    // Substrings that should NEVER host user conversation files. Each entry is
+    // matched against the lowercased forward-slash form of the path.
+    const BLOCKED_SUBSTRINGS: &[&str] = &[
+        // Windows
+        "/windows/system32",
+        "/windows/syswow64",
+        "/windows/winsxs",
+        "/program files/",
+        "/program files (x86)/",
+        "/programdata/microsoft",
+        // Unix-like core
+        "/etc/",
+        "/bin/",
+        "/sbin/",
+        "/boot/",
+        "/dev/",
+        "/proc/",
+        "/sys/",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/lib",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        // macOS
+        "/system/",
+        "/library/system",
+        "/private/etc",
+        "/private/var",
+    ];
+
+    // Match either as a substring or as a prefix (so `/etc` matches root `/etc`
+    // not just `/etc/`).
+    for blocked in BLOCKED_SUBSTRINGS {
+        let trimmed = blocked.trim_end_matches('/');
+        if canon_str == trimmed || canon_str.starts_with(trimmed) && {
+            // Avoid false positives: only match if next char is `/` or end-of-string.
+            let next = canon_str.as_bytes().get(trimmed.len()).copied();
+            next.is_none() || next == Some(b'/')
+        } {
+            return Err("System paths are not allowed for conversation storage".to_string());
+        }
+    }
+
+    Ok(canon)
 }
 
 #[tauri::command]
 async fn save_conversation(folder: String, filename: String, json: String) -> Result<(), String> {
-    let dir = ensure_folder(&folder)?;
+    let dir = validate_user_folder(&folder)?;
     let safe = sanitize_filename(&filename);
     let path = dir.join(format!("{}.json", safe));
     tokio::fs::write(&path, json)
@@ -690,8 +794,9 @@ async fn save_conversation(folder: String, filename: String, json: String) -> Re
 
 #[tauri::command]
 async fn load_conversation(folder: String, filename: String) -> Result<String, String> {
+    let dir = validate_user_folder(&folder)?;
     let safe = sanitize_filename(&filename);
-    let path = std::path::PathBuf::from(&folder).join(format!("{}.json", safe));
+    let path = dir.join(format!("{}.json", safe));
     tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| format!("Failed to read conversation: {}", e))
@@ -709,10 +814,13 @@ pub struct ConversationMeta {
 
 #[tauri::command]
 async fn list_conversations(folder: String) -> Result<Vec<ConversationMeta>, String> {
-    let dir = std::path::PathBuf::from(&folder);
-    if !dir.exists() {
-        return Ok(vec![]);
-    }
+    // Be permissive on first launch (folder may not yet exist if user hasn't
+    // picked one), but reject anything that exists in a system location.
+    let dir = match validate_user_folder(&folder) {
+        Ok(d) => d,
+        Err(e) if e.starts_with("Folder does not exist") => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
     let mut entries = tokio::fs::read_dir(&dir)
         .await
         .map_err(|e| format!("Read dir failed: {}", e))?;
@@ -746,8 +854,8 @@ async fn list_conversations(folder: String) -> Result<Vec<ConversationMeta>, Str
 
 #[tauri::command]
 async fn delete_conversation(folder: String, filename: String) -> Result<(), String> {
+    let dir = validate_user_folder(&folder)?;
     let safe = sanitize_filename(&filename);
-    let dir = std::path::PathBuf::from(&folder);
     let json_path = dir.join(format!("{}.json", safe));
     let md_path = dir.join(format!("{}.md", safe));
     if json_path.exists() {
@@ -763,7 +871,7 @@ async fn delete_conversation(folder: String, filename: String) -> Result<(), Str
 
 #[tauri::command]
 async fn rename_conversation(folder: String, old_filename: String, new_filename: String) -> Result<(), String> {
-    let dir = std::path::PathBuf::from(&folder);
+    let dir = validate_user_folder(&folder)?;
     let old_safe = sanitize_filename(&old_filename);
     let new_safe = sanitize_filename(&new_filename);
     let from = dir.join(format!("{}.json", old_safe));
@@ -791,6 +899,19 @@ async fn rename_conversation(folder: String, old_filename: String, new_filename:
 
 #[tauri::command]
 fn open_in_explorer(path: String) -> Result<(), String> {
+    // Reject anything that isn't an existing local directory. xdg-open/open
+    // resolve URLs and custom protocol handlers — never let a URL reach here.
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    if !p.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+    // Belt-and-suspenders: refuse anything that smells like a URL or scheme.
+    if path.contains("://") || path.starts_with("file:") {
+        return Err("URLs are not allowed".to_string());
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -820,7 +941,7 @@ fn open_in_explorer(path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn export_conversation_md(folder: String, filename: String, markdown: String) -> Result<String, String> {
-    let dir = ensure_folder(&folder)?;
+    let dir = validate_user_folder(&folder)?;
     let safe = sanitize_filename(&filename);
     let path = dir.join(format!("{}.md", safe));
     tokio::fs::write(&path, markdown)

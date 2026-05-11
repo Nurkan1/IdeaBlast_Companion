@@ -277,7 +277,7 @@ export function ChatPanel({
                         : ""
                     }`}>
                       <div className="mcp-tool-header">
-                        \u26A1 MCP: {msg.mcpTool.statusMessage}
+                        {"\u26A1"} MCP: {msg.mcpTool.statusMessage}
                       </div>
                       {msg.mcpTool.progressSteps && msg.mcpTool.progressSteps.length > 0 && (
                         <div className="mcp-progress-log">
@@ -291,7 +291,28 @@ export function ChatPanel({
                   <div className="msg-content">
                     {msg.content ? (
                       msg.role === "assistant" ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ href, children }) => {
+                              const safe =
+                                typeof href === "string" &&
+                                /^https?:\/\//i.test(href);
+                              return (
+                                <a
+                                  href={safe ? href : undefined}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    if (safe) openUrl(href!).catch(console.error);
+                                  }}
+                                  style={{ cursor: safe ? "pointer" : "default" }}
+                                >
+                                  {children}
+                                </a>
+                              );
+                            },
+                          }}
+                        >
                           {msg.content}
                         </ReactMarkdown>
                       ) : (
@@ -311,7 +332,7 @@ export function ChatPanel({
 
             {error && (
               <div className="chat-error">
-                <div className="chat-error-inner">\u26A0 {error}</div>
+                <div className="chat-error-inner">{"\u26A0"} {error}</div>
               </div>
             )}
 
@@ -333,7 +354,7 @@ export function ChatPanel({
                     className="att-chip-remove"
                     onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
                   >
-                    \u00D7
+                    {"\u00D7"}
                   </button>
                 </div>
               ))}
@@ -390,8 +411,8 @@ export function ChatPanel({
           </div>
 
           <div className="input-hint">
-            <span>{modelName} \u00B7 Shift+Enter for new line{mcpConnected && " \u00B7 MCP Sync active"}</span>
-            <span className="input-hint-separator">\u00B7</span>
+            <span>{modelName} {"\u00B7"} Shift+Enter for new line{mcpConnected && " \u00B7 MCP Sync active"}</span>
+            <span className="input-hint-separator">{"\u00B7"}</span>
             <a className="input-hint-link" onClick={handleOpenIdeaBlast}>ideablast.app</a>
           </div>
         </div>
