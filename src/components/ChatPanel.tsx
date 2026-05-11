@@ -291,7 +291,28 @@ export function ChatPanel({
                   <div className="msg-content">
                     {msg.content ? (
                       msg.role === "assistant" ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ href, children }) => {
+                              const safe =
+                                typeof href === "string" &&
+                                /^https?:\/\//i.test(href);
+                              return (
+                                <a
+                                  href={safe ? href : undefined}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    if (safe) openUrl(href!).catch(console.error);
+                                  }}
+                                  style={{ cursor: safe ? "pointer" : "default" }}
+                                >
+                                  {children}
+                                </a>
+                              );
+                            },
+                          }}
+                        >
                           {msg.content}
                         </ReactMarkdown>
                       ) : (
