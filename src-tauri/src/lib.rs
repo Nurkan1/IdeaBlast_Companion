@@ -714,6 +714,34 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{is_url_allowed, sanitize_filename};
+
+    #[test]
+    fn url_allowlist_accepts_only_expected_local_services() {
+        assert!(is_url_allowed("http://127.0.0.1:11434/api/tags"));
+        assert!(is_url_allowed("http://localhost:3456/api/health"));
+    }
+
+    #[test]
+    fn url_allowlist_rejects_external_hosts_and_unapproved_ports() {
+        assert!(!is_url_allowed("https://example.com/api/tags"));
+        assert!(!is_url_allowed("http://127.0.0.1:8080/api/tags"));
+        assert!(!is_url_allowed("http://localhost/api/tags"));
+        assert!(!is_url_allowed("not-a-url"));
+    }
+
+    #[test]
+    fn sanitize_filename_replaces_path_and_shell_metacharacters() {
+        assert_eq!(
+            sanitize_filename("../chat:name?.json"),
+            ".._chat_name_.json"
+        );
+        assert_eq!(sanitize_filename("safe-name_1.2"), "safe-name_1.2");
+    }
+}
+
 /// Defense in depth: refuse any folder that looks like a system path or that
 /// the user did not actually choose via the dialog. Returns the canonical
 /// absolute path on success.
@@ -958,7 +986,6 @@ async fn export_conversation_md(folder: String, filename: String, markdown: Stri
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             fetch_ollama_tags,
