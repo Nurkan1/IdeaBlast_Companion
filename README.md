@@ -27,11 +27,11 @@ Download the latest installer from [Releases](https://github.com/Nurkan1/IdeaBla
 
 ```bash
 # Linux .deb install
-sudo dpkg -i IdeaBlast.Companion_1.2.0_amd64.deb
+sudo dpkg -i IdeaBlast.Companion_1.2.3_amd64.deb
 
 # Linux AppImage (no install needed)
-chmod +x IdeaBlast.Companion_1.2.0_amd64.AppImage
-./IdeaBlast.Companion_1.2.0_amd64.AppImage
+chmod +x IdeaBlast.Companion_1.2.3_amd64.AppImage
+./IdeaBlast.Companion_1.2.3_amd64.AppImage
 ```
 
 ### 3. Connect to IdeaBlast

@@ -1,6 +1,6 @@
 [package]
 name = "ideablast-companion"
-version = "1.2.2"
+version = "1.2.3"
 description = "IdeaBlast Companion - Local AI Desktop Assistant for IdeaBlast via MCP"
 authors = ["PYSBG"]
 edition = "2021"

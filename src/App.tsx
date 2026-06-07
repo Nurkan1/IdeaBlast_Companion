@@ -184,7 +184,7 @@ function App() {
               {settings.theme === "dark" ? "☀️ Light" : "🌙 Dark"}
             </button>
             <p className="sidebar-footer-text" style={{ margin: 0 }}>
-              v1.1.0
+              v1.2.3
             </p>
           </div>
         </div>
