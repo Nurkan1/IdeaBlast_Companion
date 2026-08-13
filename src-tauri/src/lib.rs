@@ -12,7 +12,9 @@ fn is_url_allowed(url: &str) -> bool {
     if let Ok(parsed) = reqwest::Url::parse(url) {
         let host = parsed.host_str().unwrap_or("");
         let port = parsed.port().unwrap_or(80);
-        ALLOWED_HOSTS.contains(&host) && ALLOWED_PORTS.contains(&port)
+        parsed.scheme() == "http"
+            && ALLOWED_HOSTS.contains(&host)
+            && ALLOWED_PORTS.contains(&port)
     } else {
         false
     }
@@ -727,6 +729,8 @@ mod tests {
     #[test]
     fn url_allowlist_rejects_external_hosts_and_unapproved_ports() {
         assert!(!is_url_allowed("https://example.com/api/tags"));
+        assert!(!is_url_allowed("ftp://127.0.0.1:11434/api/tags"));
+        assert!(!is_url_allowed("https://localhost:3456/api/health"));
         assert!(!is_url_allowed("http://127.0.0.1:8080/api/tags"));
         assert!(!is_url_allowed("http://localhost/api/tags"));
         assert!(!is_url_allowed("not-a-url"));
@@ -740,6 +744,7 @@ mod tests {
         );
         assert_eq!(sanitize_filename("safe-name_1.2"), "safe-name_1.2");
     }
+
 }
 
 /// Defense in depth: refuse any folder that looks like a system path or that

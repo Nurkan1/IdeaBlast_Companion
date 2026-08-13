@@ -1,0 +1,9 @@
+Cargo.lock text eol=lf
+src-tauri/Cargo.lock text eol=lf
+.gitignore text
+*.md text eol=lf
+*.rs text
+*.toml text eol=lf
+*.yml text
+*.yaml text
+LICENSE text eol=lf
