@@ -1,12 +1,12 @@
 /**
- * MCP Client — Uses Rust commands for direct file I/O on the MCP server's
- * data directory (inbox.json, snapshot.json, actions.json).
+ * MCP Client — reads from the active local HTTP bridge.
  *
- * This replicates the exact behavior of the MCP tools (create_idea, brainstorm, etc.)
- * which write directly to these files. The HTTP bridge only serves GET/DELETE endpoints.
+ * Queue writes still use the installed MCP package commands because the bridge
+ * exposes read and acknowledgement routes but no POST route for queue items.
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { mcpDelete, mcpGet } from "./httpProxy";
 
 // ── Public Types ────────────────────────────────────────────
 
@@ -26,29 +26,59 @@ export interface McpSnapshot {
   dailyNotes?: unknown[];
   kanbanCards?: unknown[];
   boardroomSessions?: unknown[];
+  updatedAt?: string;
 }
 
 // ── READ Operations (from snapshot.json) ────────────────────
 
 /** Get the current snapshot — IdeaBlast browser pushes state here every 5s */
 export async function mcpGetSnapshot(): Promise<McpSnapshot> {
-  const raw = await invoke<string>("mcp_read_snapshot");
-  try {
-    return JSON.parse(raw) as McpSnapshot;
-  } catch {
-    return {};
+  const response = await mcpGet<McpSnapshot | {
+    error?: { code?: string; message?: string } | string;
+  }>("/api/snapshot");
+
+  if (response.status === 404) {
+    throw new Error("No IdeaBlast snapshot is available. Enable MCP Sync in IdeaBlast.");
   }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`MCP snapshot returned HTTP ${response.status}`);
+  }
+  if (
+    !response.data
+    || typeof response.data !== "object"
+    || Array.isArray(response.data)
+    || !Array.isArray((response.data as McpSnapshot).ideas)
+  ) {
+    throw new Error("MCP snapshot response is invalid");
+  }
+
+  return response.data as McpSnapshot;
 }
 
 /** Get pending inbox items */
 export async function mcpGetInbox(): Promise<unknown[]> {
-  const raw = await invoke<string>("mcp_read_inbox");
-  try {
-    const data = JSON.parse(raw);
-    return data.items ?? [];
-  } catch {
-    return [];
+  const response = await mcpGet<{ items?: unknown[] }>("/api/inbox");
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`MCP inbox returned HTTP ${response.status}`);
   }
+  return Array.isArray(response.data.items) ? response.data.items : [];
+}
+
+/** Clear every pending inbox item through the MCP bridge. */
+export async function mcpClearInbox(): Promise<number> {
+  const items = await mcpGetInbox();
+  const ids = items
+    .map((item) => item && typeof item === "object" ? (item as { id?: unknown }).id : undefined)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  for (const id of ids) {
+    const response = await mcpDelete(`/api/inbox/${encodeURIComponent(id)}`);
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`MCP failed to clear inbox item ${id}: HTTP ${response.status}`);
+    }
+  }
+
+  return ids.length;
 }
 
 // ── CREATE Operations (write to inbox.json) ─────────────────

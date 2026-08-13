@@ -15,6 +15,7 @@
 import {
   mcpGetSnapshot,
   mcpGetInbox,
+  mcpClearInbox,
   mcpCreateIdea,
   mcpCreateStickyNote,
   mcpCreateKanbanCard,
@@ -33,6 +34,7 @@ export interface McpToolResult {
   success: boolean;
   contextData: string;
   statusMessage: string;
+  responseText?: string;
   postProcess?: (llmResponse: string) => Promise<void>;
   progressSteps?: string[];
 }
@@ -97,7 +99,20 @@ interface IntentPattern {
 // NOTE: Order matters — first match wins.
 // More specific patterns go first; generic ones last.
 const INTENT_PATTERNS: IntentPattern[] = [
-  // ── DELETE (must be before create) ──
+  // ── QUEUE MANAGEMENT (must be before generic pending reads) ──
+  { keywords: /\b(limpia|clear|vac[ií]a|empty)\b.*\b(pending|pendiente|inbox|cola|queue)\b/i, tool: "clear_pending" },
+
+  // ── RESOURCE-SPECIFIC MUTATIONS (must be before generic idea mutations) ──
+  { keywords: /\b(crea|crear|create|nueva?|new|add|a[ñn]ad)\b.*\b(kanban|tarjeta|card)\b/i, tool: "create_kanban" },
+  { keywords: /\b(kanban|tarjeta|card)\b.*\b(crea|crear|create|nueva?|new|add|a[ñn]ad)\b/i, tool: "create_kanban" },
+  { keywords: /\b(crea|crear|create|nueva?|new|add|a[ñn]ad)\b.*\b(nota|note|sticky|recordatorio|reminder)\b/i, tool: "create_sticky" },
+  { keywords: /\b(nota|note|sticky|recordatorio|reminder)\b.*\b(crea|crear|create|nueva?|new|add|a[ñn]ad)\b/i, tool: "create_sticky" },
+  { keywords: /\b(muev\w*|move|mover|edit\w*|borr\w*|delete\w*|elimin\w*|remove\w*)\b.*\b(kanban|columna|column|card|tarjeta)\b/i, tool: "update_kanban" },
+  { keywords: /\b(kanban|tarjeta|card)\b.*\b(muev\w*|move|mover|edit\w*|borr\w*|delete\w*|elimin\w*|remove\w*)\b/i, tool: "update_kanban" },
+  { keywords: /\b(edit\w*|borr\w*|delete\w*|elimin\w*|remove\w*|complet\w*|done|hecho)\b.*\b(nota|note|sticky)\b/i, tool: "update_daily_note" },
+  { keywords: /\b(nota|note|sticky)\b.*\b(edit\w*|borr\w*|delete\w*|elimin\w*|remove\w*|complet\w*|done|hecho)\b/i, tool: "update_daily_note" },
+
+  // ── DELETE IDEAS ──
   // Handles: borra, borrar, bórralas, boralas, bórralo, elimina, elimínalas, delete, quita, etc.
   { keywords: /b[oó]r+a|elimin|delet|remov|quit[ae]|suprim|trash|papelera/i, tool: "delete_idea" },
 
@@ -113,13 +128,6 @@ const INTENT_PATTERNS: IntentPattern[] = [
 
   // ── TAGS ──
   { keywords: /\b(tags?|etiquetas?)\b/i, tool: "add_tag" },
-
-  // ── KANBAN UPDATE (move, edit, delete) ──
-  { keywords: /\b(muev[ae]|move|mover)\b.*\b(kanban|columna|column|card|tarjeta)\b/i, tool: "update_kanban" },
-  { keywords: /\b(kanban|tarjeta|card)\b.*\b(muev[ae]|move|edit|bor+a|delet|elimin)\b/i, tool: "update_kanban" },
-
-  // ── DAILY NOTE UPDATE ──
-  { keywords: /\b(nota|note|sticky)\b.*\b(edit|bor+a|delet|elimin|complet|done|hecho)\b/i, tool: "update_daily_note" },
 
   // ── READ intents ──
   { keywords: /\b(weekly|semanal|semana[lr]?|review)\b/i, tool: "weekly_summary" },
@@ -137,10 +145,6 @@ const INTENT_PATTERNS: IntentPattern[] = [
   // ── NEXUS / DIAGRAM ──
   { keywords: /\b(nexus|diagrama|diagram|mind\s*map|mapa\s*mental|flowchart|flujo)\b/i, tool: "inject_nexus" },
 
-  // ── CREATE KANBAN CARD ──
-  { keywords: /\b(kanban|tarjeta)\b.*\b(crea|crear|nueva?|new|add|a[ñn]ad)\b/i, tool: "create_kanban" },
-  { keywords: /\b(crea|crear|nueva?|new|add|a[ñn]ad)\b.*\b(kanban|tarjeta|card)\b/i, tool: "create_kanban" },
-
   // ── BRAINSTORM / MULTIPLE IDEAS (must be BEFORE create_idea) ──
   // Catches: "crea 3 ideas", "crea tres ideas", "generate 5 ideas", "dame 4 ideas", "quiero ideas sobre..."
   { keywords: /\b(crea|crear|create|genera|generate|dame|quiero|hazme|make)\b.*\b(\d+|dos|tres|cuatro|cinco|seis|siete|ocho|diez|two|three|four|five|six|seven|eight|ten)\b.*\b(ideas?)\b/i, tool: "brainstorm" },
@@ -150,20 +154,15 @@ const INTENT_PATTERNS: IntentPattern[] = [
   // ── CREATE IDEA (single) ──
   { keywords: /\b(crea|crear|create|nueva? idea|new idea|a[ñn]ad|add idea|agrega|anota|apunta|guarda|save|write down)\b/i, tool: "create_idea" },
 
-  // ── CREATE STICKY NOTE ──
-  { keywords: /\b(crea|crear|nueva?|new|add)\b.*\b(nota|note|sticky|recordatorio|reminder)\b/i, tool: "create_sticky" },
-
   // ── DAILY PLAN ──
   { keywords: /\b(planifica|organiza)\b.*\b(d[ií]a|day|hoy|today)\b/i, tool: "daily_plan" },
 
   // ── SET DEADLINE ──
   { keywords: /\b(fecha\s*l[ií]mite|deadline|vencimiento|due\s*date)\b/i, tool: "set_deadline" },
 
-  // ── CLEAR PENDING ──
-  { keywords: /\b(limpia|clear|vacía|empty)\b.*\b(pending|pendiente|inbox|cola)\b/i, tool: "clear_pending" },
 ];
 
-function detectIntentRegex(message: string): string | null {
+export function detectIntentRegex(message: string): string | null {
   for (const pattern of INTENT_PATTERNS) {
     if (pattern.keywords.test(message)) {
       return pattern.tool;
@@ -401,7 +400,7 @@ async function executeTool(tool: string, userMessage: string, fileContexts?: Fil
         await mcpCreateIdea(ideaText, ideaTags.length > 0 ? ideaTags : undefined, deadline ?? undefined);
         const tagInfo = ideaTags.length > 0 ? ` Tags: [${ideaTags.join(", ")}]` : "";
         const deadlineInfo = deadline ? ` Deadline: ${deadline}` : "";
-        return ok(tool, `Idea created: "${ideaText}".${tagInfo}${deadlineInfo}`, "Idea created ✅");
+        return ok(tool, `Idea queued for IdeaBlast Sync: "${ideaText}".${tagInfo}${deadlineInfo}`, "Idea queued");
       }
 
       case "create_sticky": {
@@ -410,7 +409,7 @@ async function executeTool(tool: string, userMessage: string, fileContexts?: Fil
           .trim() || userMessage;
         const color = extractStickyColor(userMessage);
         await mcpCreateStickyNote(text, color);
-        return ok(tool, `Sticky note created: "${text}" (${color})`, "Note created ✅");
+        return ok(tool, `Sticky note queued for IdeaBlast Sync: "${text}" (${color})`, "Note queued");
       }
 
       case "create_kanban": {
@@ -419,7 +418,7 @@ async function executeTool(tool: string, userMessage: string, fileContexts?: Fil
           .trim() || userMessage;
         const column = extractKanbanColumn(userMessage);
         await mcpCreateKanbanCard(title, column);
-        return ok(tool, `Kanban card created: "${title}" in column "${column}"`, "Card created ✅");
+        return ok(tool, `Kanban card queued for IdeaBlast Sync: "${title}" in column "${column}"`, "Card queued");
       }
 
       case "daily_plan": {
@@ -429,7 +428,7 @@ async function executeTool(tool: string, userMessage: string, fileContexts?: Fil
         for (let i = 0; i < tasks.length; i++) {
           await mcpCreateStickyNote(tasks[i], colors[i % colors.length]);
         }
-        return ok(tool, `Daily plan: ${tasks.length} notes created on the Daily Board.`, `${tasks.length} notes ✅`);
+        return ok(tool, `Daily plan queued: ${tasks.length} note(s) waiting for IdeaBlast Sync.`, `${tasks.length} notes queued`);
       }
 
       // ── BRAINSTORM (LLM-powered) ──
@@ -458,7 +457,7 @@ After the list, add a brief comment. CRITICAL: Do NOT write "[MCP ACTION]" or pr
               await mcpCreateIdea(ideas[i], [tag, "brainstorm"]);
               emitProgress(`✅ ${i + 1}/${ideas.length}: ${ideas[i].slice(0, 50)}...`);
             }
-            emitProgress(`🎯 Brainstorm complete! ${ideas.length} ideas saved · Tag: #${tag}`);
+            emitProgress(`🎯 Brainstorm complete! ${ideas.length} ideas queued · Tag: #${tag}`);
           },
         };
       }
@@ -502,7 +501,7 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
               emitProgress(`✅ ${i + 1}/${totalSteps}: ${steps[i].slice(0, 50)}...`);
             }
             const endDate = new Date(); endDate.setDate(endDate.getDate() + totalSteps * daysBetween);
-            emitProgress(`🎯 Plan saved! ${totalSteps} cards · ${formatDateShort(new Date())} → ${formatDateShort(endDate)} · Tag: #${tag}`);
+            emitProgress(`🎯 Plan queued! ${totalSteps} cards · ${formatDateShort(new Date())} → ${formatDateShort(endDate)} · Tag: #${tag}`);
           },
         };
       }
@@ -526,10 +525,23 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
           toDelete = ideas.slice(0, parseInt(numMatch[1]));
         } else if (numMatch) {
           toDelete = ideas.slice(0, parseInt(numMatch[1]));
-        } else if (_lastReadIdeas.length > 0) {
-          toDelete = _lastReadIdeas;
         } else {
-          toDelete = ideas;
+          toDelete = findIdeasNamedInMessage(ideas, userMessage);
+        }
+
+        const referencesPreviousSelection = /\b(them|those|these|las|los|estas?|esas?|seleccionad[oa]s?)\b/i.test(msg);
+        if (toDelete.length === 0 && referencesPreviousSelection && _lastReadIdeas.length > 0) {
+          toDelete = _lastReadIdeas;
+        }
+        if (toDelete.length === 0 && ideas.length === 1) {
+          toDelete = [ideas[0]];
+        }
+        if (toDelete.length === 0) {
+          return ok(
+            tool,
+            "No idea matched that request. Search or list ideas first, then name the exact idea to delete.",
+            "No matching idea"
+          );
         }
 
         // ── Confirmation flow: store pending and show preview ──
@@ -548,7 +560,7 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
         const moreText = toDelete.length > 15 ? `\n  ... and ${toDelete.length - 15} more` : "";
 
         return ok(tool,
-          `⚠️ DELETE PREVIEW — The following ${toDelete.length} idea(s) will be permanently deleted:\n\n${previewList}${moreText}\n\nAsk the user to confirm: say "sí" / "yes" / "dale" to proceed, or "no" / "cancelar" to cancel.\nThis action CANNOT be undone.`,
+          `⚠️ DELETE PREVIEW — The following ${toDelete.length} idea(s) will be queued for permanent deletion:\n\n${previewList}${moreText}\n\nConfirm with "sí" / "yes" / "dale", or cancel with "no" / "cancelar".\nThis action CANNOT be undone after IdeaBlast Sync applies it.`,
           `⚠️ ${toDelete.length} to delete — confirm?`
         );
       }
@@ -575,7 +587,7 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
         for (const idea of targets) {
           await mcpQueueAction({ targetId: idea.id, action: "toggle_done" });
         }
-        return ok(tool, `${targets.length} idea(s) toggled done/undone.`, `${targets.length} done ✅`);
+        return ok(tool, `${targets.length} done/undone action(s) queued for IdeaBlast Sync.`, `${targets.length} queued`);
       }
 
       case "toggle_favorite": {
@@ -600,7 +612,7 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
         for (const idea of targets) {
           await mcpQueueAction({ targetId: idea.id, action: "toggle_favorite" });
         }
-        return ok(tool, `${targets.length} idea(s) toggled favorite.`, `${targets.length} fav ✅`);
+        return ok(tool, `${targets.length} favorite action(s) queued for IdeaBlast Sync.`, `${targets.length} queued`);
       }
 
       case "add_tag": {
@@ -633,7 +645,7 @@ CRITICAL: Do NOT write "[MCP ACTION]" or pretend to create ideas. Just write the
             added++;
           }
         }
-        return ok(tool, `${added} tag(s) added to ${targets.length} idea(s). Tags: [${tagsToAdd.join(", ")}].`, `${added} tags ✅`);
+        return ok(tool, `${added} tag action(s) queued for ${targets.length} idea(s). Tags: [${tagsToAdd.join(", ")}].`, `${added} tags queued`);
       }
 
       case "edit_idea": {
@@ -654,7 +666,7 @@ Write the new improved text for this idea. Write ONLY the new text, nothing else
             const newText = llmResponse.split("\n").map(l => l.trim()).filter(l => l.length > 3)[0];
             if (!newText) { emitProgress("⚠ Could not extract new text"); return; }
             await mcpQueueAction({ targetId: target.id, action: "edit_text", payload: newText });
-            emitProgress(`✅ Idea updated: "${newText.slice(0, 60)}..."`);
+            emitProgress(`✅ Idea update queued: "${newText.slice(0, 60)}..."`);
           },
         };
       }
@@ -671,7 +683,7 @@ Write the new improved text for this idea. Write ONLY the new text, nothing else
 
         const target = _lastReadIdeas.length > 0 ? _lastReadIdeas[0] : ideas[0];
         await mcpQueueAction({ targetId: target.id, action: "set_deadline", payload: deadline });
-        return ok(tool, `Deadline set to ${deadline} for idea: "${target.text.slice(0, 80)}".`, "Deadline set ✅");
+        return ok(tool, `Deadline update queued for ${deadline}: "${target.text.slice(0, 80)}".`, "Deadline queued");
       }
 
       // ── KANBAN UPDATES ──
@@ -698,7 +710,7 @@ Write the new improved text for this idea. Write ONLY the new text, nothing else
 
         const col = extractKanbanColumn(userMessage);
         await mcpQueueAction({ targetId: target.id, action: "move_column", payload: col });
-        return ok(tool, `Kanban card moved to "${col}": "${target.title}".`, `Moved to ${col} ✅`);
+        return ok(tool, `Kanban move queued to "${col}": "${target.title}".`, `Move queued`);
       }
 
       // ── DAILY NOTE UPDATES ──
@@ -723,7 +735,7 @@ Write the new improved text for this idea. Write ONLY the new text, nothing else
         }
         if (msg.match(/complet|done|hecho|termin/)) {
           await mcpQueueAction({ targetId: target.id, action: "toggle_done" });
-          return ok(tool, `Daily note toggled: "${target.text}".`, "Note done ✅");
+          return ok(tool, `Daily note toggle queued: "${target.text}".`, "Note update queued");
         }
         return ok(tool, `Daily note found: "${target.text}". Specify what to do: delete, complete, or edit.`, "Note found");
       }
@@ -765,15 +777,15 @@ The system will convert this into a visual diagram in IdeaBlast's Nexus canvas.`
               action: "inject_nexus",
               payload: diagramPayload,
             });
-            emitProgress(`🎯 Diagram injected! ${nodes.length} nodes · ${edges.length} connections`);
+            emitProgress(`🎯 Diagram queued! ${nodes.length} nodes · ${edges.length} connections`);
           },
         };
       }
 
       // ── CLEAR PENDING ──
       case "clear_pending": {
-        const items = await mcpGetInbox();
-        return ok(tool, `Cleared ${items.length} pending items from the sync queue.`, "Cleared ✅");
+        const cleared = await mcpClearInbox();
+        return ok(tool, `Cleared ${cleared} pending item(s) from the sync queue.`, `Cleared ${cleared} ✅`);
       }
 
       default:
@@ -782,12 +794,13 @@ The system will convert this into a visual diagram in IdeaBlast's Nexus canvas.`
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[MCP Brain] Tool "${tool}" failed:`, err);
-    return { toolName: tool, success: false, contextData: `Error: ${message}`, statusMessage: `Error: ${message}` };
+    const responseText = `MCP command failed: ${message}`;
+    return { toolName: tool, success: false, contextData: responseText, statusMessage: responseText, responseText };
   }
 }
 
 function ok(tool: string, contextData: string, statusMessage: string): McpToolResult {
-  return { toolName: tool, success: true, contextData, statusMessage };
+  return { toolName: tool, success: true, contextData, statusMessage, responseText: contextData };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1144,22 +1157,45 @@ async function executeConfirmedAction(pending: PendingAction): Promise<McpToolRe
   const total = pending.items.length;
   emitProgress(`🗑 Deleting ${total} item(s)...`);
 
-  let deleted = 0;
+  let queued = 0;
   for (const item of pending.items) {
     try {
       await mcpQueueAction({ targetId: item.id, action: "delete" });
-      deleted++;
-      if (deleted % 3 === 0 || deleted === total) {
-        emitProgress(`🗑 ${deleted}/${total}: ${item.label.slice(0, 40)}...`);
+      queued++;
+      if (queued % 3 === 0 || queued === total) {
+        emitProgress(`🗑 ${queued}/${total}: ${item.label.slice(0, 40)}...`);
       }
     } catch (e) {
       console.warn("[MCP Brain] delete failed for", item.id, e);
     }
   }
 
-  emitProgress(`✅ Done! ${deleted}/${total} item(s) deleted`);
+  emitProgress(`✅ ${queued}/${total} deletion action(s) queued`);
   return ok("delete_confirmed",
-    `${deleted} item(s) deleted successfully. Changes will apply on next MCP Sync.`,
-    `${deleted} deleted ✅`
+    `${queued} deletion action(s) queued. IdeaBlast will apply them on the next sync.`,
+    `${queued} deletions queued`
   );
+}
+
+function findIdeasNamedInMessage(ideas: McpIdea[], message: string): McpIdea[] {
+  const query = message
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(delete\w*|remove\w*|erase\w*|borr\w*|elimin\w*|quit\w*|suprim\w*|idea\w*|the|a|an|please|por|favor|la|el|las|los|de|del)\b/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!query) return [];
+  const terms = query.split(" ").filter((term) => term.length > 1);
+  if (terms.length === 0) return [];
+
+  return ideas.filter((idea) => {
+    const searchable = `${idea.text} ${(idea.tags ?? []).join(" ")}`
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
 }

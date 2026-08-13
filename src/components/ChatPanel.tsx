@@ -19,6 +19,7 @@ interface ChatPanelProps {
   onSend: (content: string, images?: string[]) => void;
   onClear: () => void;
   mcpConnected: boolean;
+  mcpStatusMessage?: string | null;
   modelName: string;
   dirty?: boolean;
   canPersist?: boolean;
@@ -60,6 +61,7 @@ export function ChatPanel({
   onSend,
   onClear,
   mcpConnected,
+  mcpStatusMessage,
   modelName,
   dirty,
   canPersist,
@@ -209,14 +211,14 @@ export function ChatPanel({
           <img src="/logo.svg" alt="IdeaBlast" className="chat-welcome-logo" />
           <h2>IdeaBlast Companion</h2>
           <p>
-            Your local AI assistant connected to{" "}
+            Your local AI assistant for{" "}
             <a className="ideablast-link" onClick={handleOpenIdeaBlast}>
               IdeaBlast
             </a>
             .
             {mcpConnected
               ? " MCP Sync active \u2014 I can manage your ideas."
-              : " Start MCP Sync in IdeaBlast to manage ideas."}
+              : ` ${mcpStatusMessage ?? "Start MCP Sync in IdeaBlast to manage ideas."}`}
           </p>
           <div className="quick-prompts">
             {QUICK_PROMPTS.map((qp, i) => (

@@ -140,8 +140,16 @@ function App() {
           <div className="status-card">
             <span className={`status-indicator ${mcpStatus.connected ? "online" : "offline"}`} />
             <span className="status-label">MCP Sync</span>
-            <span className="status-value">
-              {mcpStatus.connected ? "Active" : "Inactive"}
+            <span className="status-value" title={mcpStatus.message ?? undefined}>
+              {mcpStatus.checking
+                ? "..."
+                : mcpStatus.status === "active"
+                  ? "Active"
+                  : mcpStatus.status === "stale"
+                    ? "Stale"
+                    : mcpStatus.status === "waiting"
+                      ? "Waiting"
+                      : "Inactive"}
             </span>
           </div>
         </div>
@@ -218,6 +226,7 @@ function App() {
             onSend={chat.sendMessage}
             onClear={chat.clearChat}
             mcpConnected={mcpStatus.connected}
+            mcpStatusMessage={mcpStatus.message}
             modelName={activeModel}
             dirty={chat.dirty}
             canPersist={!!settings.conversationsFolder}
