@@ -86,13 +86,20 @@ export function useChat(model: string): UseChatReturn {
       const assistantMsg: ChatMessage = {
         id: nextId(),
         role: "assistant",
-        content: "",
+        content: toolResult?.responseText?.trim() ?? "",
         mcpTool: toolResult ?? undefined,
         timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setDirty(true);
+
+      // Deterministic MCP reads and queued mutations already have an exact
+      // result. Do not ask Ollama to paraphrase it or invent completion.
+      if (assistantMsg.content) {
+        return;
+      }
+
       setIsStreaming(true);
       streamBuffer.current = "";
 

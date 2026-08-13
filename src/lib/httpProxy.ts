@@ -48,6 +48,20 @@ export async function httpProxy<T = unknown>(
 const MCP_BASE = "http://127.0.0.1:3456";
 const OLLAMA_BASE = "http://127.0.0.1:11434";
 
+/** GET from the local MCP bridge. */
+export async function mcpGet<T = unknown>(
+  path: string
+): Promise<{ status: number; data: T }> {
+  return httpProxy<T>(`${MCP_BASE}${path}`);
+}
+
+/** DELETE from the local MCP bridge. */
+export async function mcpDelete<T = unknown>(
+  path: string
+): Promise<{ status: number; data: T }> {
+  return httpProxy<T>(`${MCP_BASE}${path}`, { method: "DELETE" });
+}
+
 /** POST to the local MCP server */
 export async function mcpRequest<T = unknown>(
   path: string,

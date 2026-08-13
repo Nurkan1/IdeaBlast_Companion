@@ -172,7 +172,7 @@ ollama pull gemma3:4b
 |-------|-----------|
 | Runtime | Tauri v2 (Rust) |
 | Frontend | React 18 + TypeScript |
-| Bundler | Vite 5 |
+| Bundler | Vite 8 |
 | AI Backend | Ollama (local) |
 | Integration | MCP (Model Context Protocol) |
 | CI/CD | GitHub Actions (Windows + Linux) |
